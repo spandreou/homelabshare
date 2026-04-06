@@ -1,0 +1,44 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: homelabshare-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: homelab_db
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: 5463
+    volumes:
+      - /home/spandreou/docker-data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d homelab_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: homelabshare-app
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://admin:5463@db:5432/homelab_db?schema=public
+      NODE_ENV: production
+      PORT: 3000
+    ports:
+      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - /home/spandreou/docker-data/uploads:/home/spandreou/docker-data/uploads
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: homelabshare-cloudflared
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - app

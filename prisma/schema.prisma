@@ -1,0 +1,119 @@
+generator client {
+  provider   = "prisma-client-js"
+  engineType = "binary"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum InviteRequestStatus {
+  PENDING
+  APPROVED
+}
+
+enum InviteEmailStatus {
+  NOT_SENT
+  SENT
+  FAILED
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum AuditAction {
+  UPLOAD
+  DELETE
+}
+
+model User {
+  id             String          @id @default(cuid())
+  email          String          @unique
+  password       String
+  role           UserRole        @default(USER)
+  storageUsed    BigInt          @default(0)
+  storageLimit   BigInt          @default(5368709120)
+  createdAt      DateTime        @default(now())
+  files          File[]
+  auditLogs      AuditLog[]
+  activeSessions ActiveSession[]
+}
+
+model File {
+  id        String   @id @default(cuid())
+  name      String
+  size      BigInt
+  type      String
+  path      String
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  shareLinks ShareLink[]
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model ShareLink {
+  id            String   @id
+  fileId         String
+  file           File     @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  expiresAt      DateTime
+  downloadCount  Int      @default(0)
+  createdAt      DateTime @default(now())
+
+  @@index([expiresAt])
+}
+
+model InviteCode {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  email     String   @default("")
+  expiresAt DateTime @default(now())
+  isUsed    Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model InviteRequest {
+  id          String              @id @default(cuid())
+  username    String
+  email       String
+  status      InviteRequestStatus @default(PENDING)
+  inviteCode  String?
+  emailStatus InviteEmailStatus   @default(NOT_SENT)
+  emailError  String?
+  emailSentAt DateTime?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @default(now()) @updatedAt
+
+  @@index([status, createdAt])
+  @@index([emailStatus, updatedAt])
+}
+
+model AuditLog {
+  id        String      @id @default(cuid())
+  userId    String
+  action    AuditAction
+  fileName  String
+  timestamp DateTime    @default(now())
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([timestamp(sort: Desc)])
+  @@index([userId, timestamp(sort: Desc)])
+}
+
+model ActiveSession {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  userId    String
+  ipAddress String?
+  userAgent String?
+  lastSeen  DateTime @default(now())
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt, lastSeen])
+  @@index([userId, expiresAt])
+}
