@@ -64,7 +64,7 @@ export function SystemStats({ initialStats }: { initialStats: SystemStats }) {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        <article className="rounded-xl border border-zinc-800 bg-zinc-950/70 p-4">
+        <article className="rounded-xl border border-zinc-800 bg-zinc-950/70 p-4 transition duration-200 hover:scale-[1.01] hover:border-zinc-700">
           <p className="inline-flex items-center gap-2 text-xs uppercase tracking-wide text-zinc-500">
             <Activity className="h-4 w-4" /> CPU
           </p>
@@ -74,7 +74,7 @@ export function SystemStats({ initialStats }: { initialStats: SystemStats }) {
           </p>
         </article>
 
-        <article className="rounded-xl border border-zinc-800 bg-zinc-950/70 p-4">
+        <article className="rounded-xl border border-zinc-800 bg-zinc-950/70 p-4 transition duration-200 hover:scale-[1.01] hover:border-zinc-700">
           <p className="inline-flex items-center gap-2 text-xs uppercase tracking-wide text-zinc-500">
             <MemoryStick className="h-4 w-4" /> RAM
           </p>
@@ -85,7 +85,7 @@ export function SystemStats({ initialStats }: { initialStats: SystemStats }) {
           <p className="mt-2 text-xs text-zinc-500">Free: {stats.ramFreeGb} GB ({stats.ramUsedPercent}% used)</p>
         </article>
 
-        <article className="rounded-xl border border-zinc-800 bg-zinc-950/70 p-4">
+        <article className="rounded-xl border border-zinc-800 bg-zinc-950/70 p-4 transition duration-200 hover:scale-[1.01] hover:border-zinc-700">
           <p className="inline-flex items-center gap-2 text-xs uppercase tracking-wide text-zinc-500">
             <HardDrive className="h-4 w-4" /> Disk (/home/spandreou)
           </p>
@@ -96,7 +96,7 @@ export function SystemStats({ initialStats }: { initialStats: SystemStats }) {
           <p className="mt-2 text-xs text-zinc-500">Total: {stats.diskTotalGb} GB ({stats.diskUsedPercent}% used)</p>
         </article>
 
-        <article className="rounded-xl border border-zinc-800 bg-zinc-950/70 p-4">
+        <article className="rounded-xl border border-zinc-800 bg-zinc-950/70 p-4 transition duration-200 hover:scale-[1.01] hover:border-zinc-700">
           <p className="inline-flex items-center gap-2 text-xs uppercase tracking-wide text-zinc-500">
             <Timer className="h-4 w-4" /> Uptime
           </p>
@@ -104,7 +104,7 @@ export function SystemStats({ initialStats }: { initialStats: SystemStats }) {
           <p className="mt-1 text-sm text-zinc-400">Server online duration</p>
         </article>
 
-        <article className="rounded-xl border border-zinc-800 bg-zinc-950/70 p-4">
+        <article className="rounded-xl border border-zinc-800 bg-zinc-950/70 p-4 transition duration-200 hover:scale-[1.01] hover:border-zinc-700">
           <p className="inline-flex items-center gap-2 text-xs uppercase tracking-wide text-zinc-500">
             <Users className="h-4 w-4" /> Registered Users
           </p>
@@ -112,7 +112,7 @@ export function SystemStats({ initialStats }: { initialStats: SystemStats }) {
           <p className="mt-1 text-sm text-zinc-400">Total accounts</p>
         </article>
 
-        <article className="rounded-xl border border-zinc-800 bg-zinc-950/70 p-4">
+        <article className="rounded-xl border border-zinc-800 bg-zinc-950/70 p-4 transition duration-200 hover:scale-[1.01] hover:border-zinc-700">
           <p className="inline-flex items-center gap-2 text-xs uppercase tracking-wide text-zinc-500">
             <Database className="h-4 w-4" /> Active Invite Codes
           </p>

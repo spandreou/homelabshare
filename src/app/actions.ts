@@ -3,7 +3,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readdir, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { AuditAction, InviteEmailStatus, InviteRequestStatus } from "@prisma/client";
+import { AuditAction, InviteEmailStatus, InviteRequestStatus, UserRole } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
@@ -14,7 +14,7 @@ import type {
   ManualInviteState,
   ShareLinkState,
 } from "./action-types";
-import { createSession, destroySession, hashPassword, requireAdmin, requireUser, verifyPassword } from "../lib/auth";
+import { createSession, destroySession, getCurrentUser, hashPassword, requireAdmin, requireUser, verifyPassword } from "../lib/auth";
 import { db } from "../lib/db";
 import { sendInviteCodeEmail } from "../lib/mail";
 import { collectSystemStats, type SystemStats } from "../lib/system-stats";
@@ -145,6 +145,7 @@ export type ExplorerFileEntry = {
   fileType: string;
   ownerFolder: string;
   relativePath: string;
+  isFavorite: boolean;
 };
 
 function isPathInsideRoot(absolutePath: string, rootPath: string) {
@@ -176,10 +177,30 @@ export async function getFiles(): Promise<ExplorerFileEntry[]> {
     where: user.role === "ADMIN" ? {} : { userId: user.id },
     select: {
       id: true,
+      name: true,
+      type: true,
       path: true,
     },
   });
-  const fileIdByPath = new Map(dbFiles.map((file) => [path.resolve(file.path), file.id]));
+  const favoriteRows = await db.fileFavorite.findMany({
+    where: {
+      userId: user.id,
+    },
+    select: {
+      fileId: true,
+    },
+  });
+  const favoriteIds = new Set(favoriteRows.map((row) => row.fileId));
+  const fileMetaByPath = new Map(
+    dbFiles.map((file) => [
+      path.resolve(file.path),
+      {
+        id: file.id,
+        name: file.name,
+        type: file.type,
+      },
+    ]),
+  );
 
   for (const ownerFolder of Array.from(new Set(ownerFolders))) {
     const ownerDirectory = path.resolve(path.join(normalizedRoot, normalizeRelativePath(ownerFolder)));
@@ -202,20 +223,79 @@ export async function getFiles(): Promise<ExplorerFileEntry[]> {
       if (!metadata) {
         continue;
       }
+      const dbMeta = fileMetaByPath.get(absoluteFilePath);
 
       files.push({
-        id: fileIdByPath.get(absoluteFilePath) ?? null,
-        name: entry.name,
+        id: dbMeta?.id ?? null,
+        name: dbMeta?.name ?? entry.name,
         size: metadata.size,
         createdAt: metadata.birthtime.toISOString(),
-        fileType: path.extname(entry.name).replace(".", "").toLowerCase() || "file",
+        fileType: dbMeta?.type || path.extname(entry.name).replace(".", "").toLowerCase() || "file",
         ownerFolder,
         relativePath: `${ownerFolder}/${entry.name}`,
+        isFavorite: dbMeta?.id ? favoriteIds.has(dbMeta.id) : false,
       });
     }
   }
 
   return files.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+}
+
+export async function toggleFavoriteAction(fileId: string) {
+  const user = await requireUser();
+  if (!fileId) {
+    return;
+  }
+
+  const file = await db.file.findUnique({
+    where: { id: fileId },
+    select: {
+      id: true,
+      name: true,
+      userId: true,
+    },
+  });
+
+  if (!file) {
+    return;
+  }
+
+  if (user.role !== "ADMIN" && file.userId !== user.id) {
+    return;
+  }
+
+  const existing = await db.fileFavorite.findUnique({
+    where: {
+      userId_fileId: {
+        userId: user.id,
+        fileId: file.id,
+      },
+    },
+    select: {
+      fileId: true,
+    },
+  });
+
+  if (existing) {
+    await db.fileFavorite.delete({
+      where: {
+        userId_fileId: {
+          userId: user.id,
+          fileId: file.id,
+        },
+      },
+    });
+  } else {
+    await db.fileFavorite.create({
+      data: {
+        userId: user.id,
+        fileId: file.id,
+      },
+    });
+  }
+
+  revalidatePath("/dashboard/files");
+  revalidatePath("/dashboard");
 }
 
 export async function generateShareLink(
@@ -233,6 +313,7 @@ export async function generateShareLink(
     where: { id: fileId },
     select: {
       id: true,
+      name: true,
       userId: true,
     },
   });
@@ -256,6 +337,13 @@ export async function generateShareLink(
       downloadCount: 0,
     },
   });
+  await db.auditLog.create({
+    data: {
+      userId: user.id,
+      action: AuditAction.SHARE,
+      fileName: file.name,
+    },
+  }).catch(() => undefined);
 
   const appUrl = (process.env.APP_URL ?? "").replace(/\/+$/, "");
   const shareUrl = appUrl ? `${appUrl}/sh/${shareId}` : `/sh/${shareId}`;
@@ -416,15 +504,26 @@ export async function loginAction(
   const { email, password } = parsed.data;
   const nextPath = String(formData.get("next") ?? "").trim();
 
-  const user = await db.user.findUnique({
-    where: { email },
-    select: {
-      id: true,
-      email: true,
-      password: true,
-      role: true,
-    },
-  });
+  let userResult: {
+    id: string;
+    email: string;
+    password: string;
+    role: UserRole;
+  } | null = null;
+  try {
+    userResult = await db.user.findUnique({
+      where: { email },
+      select: {
+        id: true,
+        email: true,
+        password: true,
+        role: true,
+      },
+    });
+  } catch {
+    return { error: "Login service is temporarily unavailable. Please try again in a moment." };
+  }
+  const user = userResult;
 
   if (!user) {
     return { error: "Invalid email or password." };
@@ -435,11 +534,22 @@ export async function loginAction(
     return { error: "Invalid email or password." };
   }
 
-  await createSession({
-    userId: user.id,
-    role: user.role,
-    email: user.email,
-  });
+  try {
+    await createSession({
+      userId: user.id,
+      role: user.role,
+      email: user.email,
+    });
+  } catch {
+    return { error: "Could not start your session right now. Please try again." };
+  }
+  await db.auditLog.create({
+    data: {
+      userId: user.id,
+      action: AuditAction.LOGIN,
+      fileName: "session",
+    },
+  }).catch(() => undefined);
 
   if (nextPath.startsWith("/") && !nextPath.startsWith("//")) {
     redirect(nextPath);
@@ -449,6 +559,16 @@ export async function loginAction(
 }
 
 export async function logoutAction() {
+  const currentUser = await getCurrentUser();
+  if (currentUser) {
+    await db.auditLog.create({
+      data: {
+        userId: currentUser.id,
+        action: AuditAction.LOGOUT,
+        fileName: "session",
+      },
+    }).catch(() => undefined);
+  }
   await destroySession();
   redirect("/");
 }

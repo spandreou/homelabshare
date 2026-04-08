@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import { useActionState, useEffect } from "react";
 import { useFormStatus } from "react-dom";
-import { ArrowUpFromLine, FileUp, UploadCloud } from "lucide-react";
+import { FileUp, UploadCloud } from "lucide-react";
 import toast from "react-hot-toast";
 import type { FileActionState } from "../action-types";
 
@@ -14,14 +14,14 @@ function UploadButton() {
       <button
         type="submit"
         disabled={pending}
-        className="inline-flex items-center gap-2 rounded-md bg-green-600 px-5 py-2.5 text-sm font-semibold uppercase tracking-wide text-black transition-colors hover:bg-green-500 disabled:cursor-not-allowed disabled:opacity-60"
+        className="inline-flex items-center gap-2 rounded-md bg-green-600 px-5 py-2.5 text-sm font-semibold uppercase tracking-wide text-black transition duration-200 hover:scale-[1.01] hover:bg-green-500 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
       >
-        {pending ? <ArrowUpFromLine className="h-4 w-4 animate-bounce" /> : null}
         {pending ? "Uploading..." : "Upload"}
       </button>
       {pending ? (
-        <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-300 dark:bg-zinc-800">
-          <div className="h-full w-full animate-pulse rounded-full bg-green-500" />
+        <div className="space-y-2 rounded-md border border-zinc-200 bg-zinc-100/80 p-2 dark:border-zinc-800 dark:bg-zinc-900/60">
+          <div className="h-2 w-full animate-pulse rounded bg-zinc-300 dark:bg-zinc-700" />
+          <div className="h-2 w-4/5 animate-pulse rounded bg-zinc-300/80 dark:bg-zinc-700/80" />
         </div>
       ) : null}
     </div>
@@ -91,7 +91,7 @@ export function UploadForm({
           setIsDragOver(false);
           setFileFromList(event.dataTransfer.files);
         }}
-        className={`cursor-pointer rounded-xl border-2 border-dashed bg-zinc-50 p-6 text-center transition dark:bg-zinc-950/70 ${
+        className={`cursor-pointer rounded-xl border-2 border-dashed bg-zinc-50 p-6 text-center transition duration-200 dark:bg-zinc-950/70 ${
           isDragOver ? "border-green-500" : "border-zinc-300 hover:border-zinc-500 dark:border-zinc-700"
         }`}
       >

@@ -26,6 +26,10 @@ enum UserRole {
 enum AuditAction {
   UPLOAD
   DELETE
+  DOWNLOAD
+  SHARE
+  LOGIN
+  LOGOUT
 }
 
 model User {
@@ -37,22 +41,38 @@ model User {
   storageLimit   BigInt          @default(5368709120)
   createdAt      DateTime        @default(now())
   files          File[]
+  favorites      FileFavorite[]
   auditLogs      AuditLog[]
   activeSessions ActiveSession[]
 }
 
 model File {
-  id        String   @id @default(cuid())
-  name      String
-  size      BigInt
-  type      String
-  path      String
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  shareLinks ShareLink[]
-  createdAt DateTime @default(now())
+  id             String    @id @default(cuid())
+  name           String
+  size           BigInt
+  type           String
+  path           String
+  userId         String
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  shareLinks     ShareLink[]
+  favorites      FileFavorite[]
+  createdAt      DateTime  @default(now())
+  lastAccessedAt DateTime?
 
   @@index([userId])
+  @@index([userId, lastAccessedAt(sort: Desc)])
+}
+
+model FileFavorite {
+  userId    String
+  fileId    String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  file      File     @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@id([userId, fileId])
+  @@index([fileId])
+  @@index([userId, createdAt(sort: Desc)])
 }
 
 model ShareLink {

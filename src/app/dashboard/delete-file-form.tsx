@@ -15,7 +15,7 @@ export function DeleteFileForm({
       <button
         type="button"
         onClick={() => setIsOpen(true)}
-        className="inline-flex items-center gap-1.5 rounded-md border border-red-900/60 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-red-300 hover:bg-red-950/50"
+        className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-red-900/60 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-red-300 transition duration-200 hover:scale-[1.01] hover:bg-red-950/50 active:scale-[0.98] sm:text-xs"
       >
         <Trash2 className="h-3.5 w-3.5" />
         Delete
@@ -33,14 +33,14 @@ export function DeleteFileForm({
               <button
                 type="button"
                 onClick={() => setIsOpen(false)}
-                className="rounded-md border border-zinc-700 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-200 hover:border-zinc-500"
+                className="rounded-md border border-zinc-700 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-200 transition duration-200 hover:scale-[1.01] hover:border-zinc-500 active:scale-[0.98]"
               >
                 Cancel
               </button>
               <form action={action}>
                 <button
                   type="submit"
-                  className="rounded-md bg-red-600 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-white hover:bg-red-500"
+                  className="rounded-md bg-red-600 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-white transition duration-200 hover:scale-[1.01] hover:bg-red-500 active:scale-[0.98]"
                 >
                   Yes, delete
                 </button>

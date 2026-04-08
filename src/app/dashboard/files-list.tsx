@@ -86,7 +86,7 @@ export function FilesList({ files }: { files: DashboardFile[] }) {
         <p className="text-sm text-zinc-500 dark:text-zinc-500">Upload your first document to get started.</p>
         <a
           href="#upload-section"
-          className="rounded-md bg-green-600 px-4 py-2 text-sm font-semibold uppercase tracking-wide text-black transition hover:bg-green-500"
+          className="rounded-md bg-green-600 px-4 py-2 text-sm font-semibold uppercase tracking-wide text-black transition duration-200 hover:scale-[1.01] hover:bg-green-500 active:scale-[0.99]"
         >
           Go To Upload
         </a>
@@ -97,7 +97,7 @@ export function FilesList({ files }: { files: DashboardFile[] }) {
   return (
     <>
       <div className="mb-5 grid gap-3 md:grid-cols-[1fr_220px]">
-        <label className="flex items-center gap-2 rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900">
+        <label className="flex items-center gap-2 rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 transition duration-200 dark:border-zinc-700 dark:bg-zinc-900">
           <Search className="h-4 w-4 text-zinc-500 dark:text-zinc-400" />
           <input
             value={searchQuery}
@@ -110,7 +110,7 @@ export function FilesList({ files }: { files: DashboardFile[] }) {
         <select
           value={sortByDate}
           onChange={(event) => setSortByDate(event.target.value as "newest" | "oldest")}
-          className="rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+          className="rounded-md border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 outline-none transition duration-200 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
         >
           <option value="newest">Sort by Date: Newest First</option>
           <option value="oldest">Sort by Date: Oldest First</option>
@@ -124,14 +124,13 @@ export function FilesList({ files }: { files: DashboardFile[] }) {
       ) : (
         <>
           <div className="space-y-3 md:hidden">
-            {filteredFiles.map((file, index) => {
+            {filteredFiles.map((file) => {
               const { Icon, colorClass } = getFileTypeMeta(file.name);
 
               return (
                 <article
                   key={file.id}
-                  className="rounded-xl border border-zinc-300 bg-zinc-50/95 p-4 animate-[softBounce_420ms_ease-out] dark:border-zinc-800 dark:bg-zinc-900/60"
-                  style={{ animationDelay: `${index * 60}ms` }}
+                  className="rounded-xl border border-zinc-300 bg-zinc-50/95 p-4 transition duration-200 hover:scale-[1.01] hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900/60 dark:hover:border-zinc-700"
                 >
                   <div className="mb-2 inline-flex items-center gap-2">
                     <Icon className={`h-4 w-4 ${colorClass}`} />
@@ -145,7 +144,7 @@ export function FilesList({ files }: { files: DashboardFile[] }) {
                     <form action={downloadFileAction.bind(null, file.id)}>
                       <button
                         type="submit"
-                        className="inline-flex items-center gap-1.5 rounded-md border border-zinc-700 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide hover:border-green-600 hover:text-green-500"
+                        className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-zinc-700 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide transition duration-200 hover:scale-[1.01] hover:border-green-600 hover:text-green-500 active:scale-[0.98] sm:text-xs"
                       >
                         <Download className="h-3.5 w-3.5" />
                         Download
@@ -173,7 +172,7 @@ export function FilesList({ files }: { files: DashboardFile[] }) {
                   const { Icon, colorClass } = getFileTypeMeta(file.name);
 
                   return (
-                    <tr key={file.id} className="border-b border-zinc-200/80 dark:border-zinc-900/70">
+                    <tr key={file.id} className="border-b border-zinc-200/80 transition-colors duration-200 hover:bg-zinc-50/70 dark:border-zinc-900/70 dark:hover:bg-zinc-900/35">
                       <td className="py-3 pr-4">
                         <span className="inline-flex items-center gap-2">
                           <Icon className={`h-4 w-4 ${colorClass}`} />
@@ -187,7 +186,7 @@ export function FilesList({ files }: { files: DashboardFile[] }) {
                           <form action={downloadFileAction.bind(null, file.id)}>
                             <button
                               type="submit"
-                              className="inline-flex items-center gap-1.5 rounded-md border border-zinc-700 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide hover:border-green-600 hover:text-green-500"
+                              className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-zinc-700 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide transition duration-200 hover:scale-[1.01] hover:border-green-600 hover:text-green-500 active:scale-[0.98] sm:text-xs"
                             >
                               <Download className="h-3.5 w-3.5" />
                               Download

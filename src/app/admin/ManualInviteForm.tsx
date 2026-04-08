@@ -14,7 +14,7 @@ function GenerateButton() {
     <button
       type="submit"
       disabled={pending}
-      className="rounded-md bg-green-600 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-black transition hover:bg-green-500 disabled:cursor-not-allowed disabled:opacity-60"
+      className="rounded-md bg-green-600 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-black transition duration-200 hover:scale-[1.01] hover:bg-green-500 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
     >
       {pending ? "Generating..." : "Generate Activation Code"}
     </button>
@@ -62,7 +62,7 @@ export function ManualInviteForm() {
             <button
               type="button"
               onClick={copyToClipboard}
-              className="inline-flex items-center gap-1 rounded-md border border-zinc-600 px-2 py-1 text-xs text-zinc-200 hover:border-green-500 hover:text-green-300"
+              className="inline-flex items-center gap-1 rounded-md border border-zinc-600 px-2 py-1 text-xs text-zinc-200 transition duration-200 hover:scale-[1.01] hover:border-green-500 hover:text-green-300 active:scale-[0.98]"
             >
               <Copy className="h-3.5 w-3.5" /> Copy to Clipboard
             </button>

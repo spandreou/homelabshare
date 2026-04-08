@@ -1,5 +1,8 @@
-import { readFile } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { stat } from "node:fs/promises";
 import path from "node:path";
+import { Readable } from "node:stream";
+import { AuditAction } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "../../../lib/auth";
 import { db } from "../../../lib/db";
@@ -22,6 +25,7 @@ export async function GET(
       userId: user.id,
     },
     select: {
+      id: true,
       name: true,
       type: true,
       path: true,
@@ -33,8 +37,7 @@ export async function GET(
   }
 
   const normalizedRoot = path.resolve(UPLOAD_ROOT);
-  const safeFileName = path.basename(file.path);
-  const normalizedFile = path.resolve(path.join(UPLOAD_ROOT, safeFileName));
+  const normalizedFile = path.resolve(file.path);
   const isInUploadRoot =
     normalizedFile === normalizedRoot || normalizedFile.startsWith(`${normalizedRoot}${path.sep}`);
 
@@ -42,12 +45,30 @@ export async function GET(
     return new NextResponse("Invalid file path", { status: 400 });
   }
 
-  const content = await readFile(normalizedFile);
+  const metadata = await stat(normalizedFile).catch(() => null);
+  if (!metadata || !metadata.isFile()) {
+    return new NextResponse("Not found", { status: 404 });
+  }
 
-  return new NextResponse(content, {
+  const stream = createReadStream(normalizedFile);
+  const webStream = Readable.toWeb(stream) as ReadableStream<Uint8Array>;
+  await db.file.update({
+    where: { id: file.id },
+    data: { lastAccessedAt: new Date() },
+  }).catch(() => undefined);
+  await db.auditLog.create({
+    data: {
+      userId: user.id,
+      action: AuditAction.DOWNLOAD,
+      fileName: file.name,
+    },
+  }).catch(() => undefined);
+
+  return new Response(webStream, {
     headers: {
       "Content-Type": file.type || "application/octet-stream",
       "Content-Disposition": `attachment; filename="${encodeURIComponent(file.name)}"`,
+      "Content-Length": String(metadata.size),
       "Cache-Control": "private, no-store",
     },
   });

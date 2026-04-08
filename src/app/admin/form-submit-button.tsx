@@ -13,7 +13,11 @@ export function FormSubmitButton({ idleLabel, pendingLabel, className, disabled 
   const { pending } = useFormStatus();
 
   return (
-    <button type="submit" disabled={disabled || pending} className={className}>
+    <button
+      type="submit"
+      disabled={disabled || pending}
+      className={`${className} transition duration-200 active:scale-[0.98]`}
+    >
       {pending ? pendingLabel : idleLabel}
     </button>
   );

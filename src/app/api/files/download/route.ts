@@ -2,8 +2,10 @@ import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
+import { AuditAction } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "../../../../lib/auth";
+import { db } from "../../../../lib/db";
 import { UPLOAD_ROOT } from "../../../../lib/storage";
 
 const MIME_BY_EXTENSION: Record<string, string> = {
@@ -41,6 +43,7 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const relativePath = normalizeRelativePath(searchParams.get("path") ?? "");
   const preview = searchParams.get("preview") === "1";
+  const thumbnail = searchParams.get("thumbnail") === "1";
   if (!relativePath) {
     return NextResponse.json({ error: "Missing path" }, { status: 400 });
   }
@@ -65,6 +68,27 @@ export async function GET(request: Request) {
   const contentType = resolveContentType(fileName);
   const stream = createReadStream(absoluteFilePath);
   const webStream = Readable.toWeb(stream) as ReadableStream<Uint8Array>;
+  const shouldTrackAccess = !(preview && thumbnail);
+  if (shouldTrackAccess) {
+    const touched = await db.file.updateMany({
+      where: {
+        path: absoluteFilePath,
+        ...(user.role === "ADMIN" ? {} : { userId: user.id }),
+      },
+      data: {
+        lastAccessedAt: new Date(),
+      },
+    }).catch(() => undefined);
+    if (touched && touched.count > 0) {
+      await db.auditLog.create({
+        data: {
+          userId: user.id,
+          action: AuditAction.DOWNLOAD,
+          fileName,
+        },
+      }).catch(() => undefined);
+    }
+  }
 
   return new Response(webStream, {
     headers: {
