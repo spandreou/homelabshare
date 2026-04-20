@@ -81,6 +81,42 @@ Minimum required configuration includes:
 - Optional admin bootstrap email (`ADMIN_EMAIL`)
 - Cloudflare tunnel token (`CLOUDFLARE_TUNNEL_TOKEN`)
 
+## Production Session Secret Runbook
+
+`SESSION_SECRET` is mandatory in production and must be at least 32 characters.
+
+1. Generate a secret (do not commit it):
+
+```bash
+openssl rand -base64 48 | tr -d '\n'
+```
+
+2. Add it to your deployment env file:
+
+```env
+SESSION_SECRET=<your-generated-secret>
+```
+
+3. Deploy with a safe reload:
+
+- Docker Compose:
+
+```bash
+docker compose up -d --no-deps --force-recreate app
+```
+
+- PM2:
+
+```bash
+pm2 reload homeLabShare --update-env
+```
+
+4. Verify runtime env without exposing value:
+
+```bash
+node -e 'const s=process.env.SESSION_SECRET||\"\"; console.log(s ? `SESSION_SECRET set (len=${s.length})` : \"SESSION_SECRET missing\")'
+```
+
 ## Security Notes
 
 - Secrets are never committed. Use `.env` locally and keep real credentials out of git.

@@ -3,6 +3,7 @@ import { logoutAction, uploadFileAction } from "../actions";
 import { requireUser } from "../../lib/auth";
 import { ThemeSwitcher } from "../../components/ThemeSwitcher";
 import { db } from "../../lib/db";
+import { resolveDisplayFileName } from "../../lib/file-name-display";
 import { FilesList } from "./files-list";
 import { UploadForm } from "./upload-form";
 import { HardDrive, LogOut, Upload, FolderOpen, FileText, FileSpreadsheet, FileArchive, File, Image as ImageIcon, Clock3, Star } from "lucide-react";
@@ -69,6 +70,7 @@ export default async function DashboardPage() {
     select: {
       id: true,
       name: true,
+      path: true,
       type: true,
       size: true,
       createdAt: true,
@@ -87,6 +89,7 @@ export default async function DashboardPage() {
         select: {
           id: true,
           name: true,
+          path: true,
           type: true,
           lastAccessedAt: true,
         },
@@ -107,6 +110,7 @@ export default async function DashboardPage() {
     select: {
       id: true,
       name: true,
+      path: true,
       type: true,
       lastAccessedAt: true,
     },
@@ -118,7 +122,7 @@ export default async function DashboardPage() {
   const storageBarColor = usagePercent >= 90 ? "bg-red-500" : "bg-green-500";
   const serializedFiles = files.map((file) => ({
     id: file.id,
-    name: file.name,
+    name: resolveDisplayFileName({ originalName: file.name, storagePath: file.path }),
     size: Number(file.size),
     createdAt: file.createdAt.toISOString(),
   }));
@@ -230,12 +234,13 @@ export default async function DashboardPage() {
               {favoriteFiles.map((favorite) => {
                 const file = favorite.file;
                 const { Icon, className } = fileIconMeta(file.type);
+                const displayName = resolveDisplayFileName({ originalName: file.name, storagePath: file.path });
 
                 return (
                   <li key={file.id} className="flex items-center justify-between rounded-lg border border-zinc-200/80 bg-zinc-50/70 px-3 py-2 transition duration-200 hover:border-zinc-300 dark:border-zinc-800/80 dark:bg-zinc-900/45 dark:hover:border-zinc-700">
                     <div className="min-w-0 inline-flex items-center gap-2">
                       <Icon className={`h-4 w-4 ${className}`} />
-                      <p className="truncate text-sm font-medium text-zinc-800 dark:text-zinc-200">{file.name}</p>
+                      <p className="truncate text-sm font-medium text-zinc-800 dark:text-zinc-200" title={displayName}>{displayName}</p>
                     </div>
                     <Star className="h-4 w-4 fill-amber-400 text-amber-400" />
                   </li>
@@ -294,11 +299,12 @@ export default async function DashboardPage() {
             <ul className="space-y-2">
               {recentFiles.map((file) => {
                 const { Icon, className } = fileIconMeta(file.type);
+                const displayName = resolveDisplayFileName({ originalName: file.name, storagePath: file.path });
                 return (
                   <li key={file.id} className="flex items-center justify-between rounded-lg border border-zinc-200/80 bg-zinc-50/70 px-3 py-2 transition duration-200 hover:border-zinc-300 dark:border-zinc-800/80 dark:bg-zinc-900/45 dark:hover:border-zinc-700">
                     <div className="min-w-0 inline-flex items-center gap-2">
                       <Icon className={`h-4 w-4 ${className}`} />
-                      <p className="truncate text-sm font-medium text-zinc-800 dark:text-zinc-200">{file.name}</p>
+                      <p className="truncate text-sm font-medium text-zinc-800 dark:text-zinc-200" title={displayName}>{displayName}</p>
                     </div>
                     <p className="text-xs text-zinc-500">
                       {file.lastAccessedAt ? new Date(file.lastAccessedAt).toLocaleString() : "-"}

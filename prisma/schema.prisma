@@ -137,3 +137,12 @@ model ActiveSession {
   @@index([expiresAt, lastSeen])
   @@index([userId, expiresAt])
 }
+
+model AutoCleanupPolicy {
+  id               Int      @id @default(1)
+  enabled          Boolean  @default(false)
+  maxAgeDays       Int      @default(30)
+  excludeFavorited Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @default(now()) @updatedAt
+}

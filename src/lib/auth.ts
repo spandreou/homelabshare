@@ -4,6 +4,7 @@ import { UserRole } from "@prisma/client";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { db } from "./db";
+import { getSessionSecret } from "./session-secret";
 
 const scrypt = promisify(scryptCallback);
 const SESSION_COOKIE = "homeLabShare_session";
@@ -15,10 +16,6 @@ type SessionPayload = {
   role: UserRole;
   userId: string;
 };
-
-function getSessionSecret() {
-  return process.env.SESSION_SECRET ?? "homelabshare-dev-secret-change-me";
-}
 
 function signPayload(payloadBase64: string) {
   return createHmac("sha256", getSessionSecret()).update(payloadBase64).digest("base64url");
@@ -82,6 +79,14 @@ async function getRequestClientMeta() {
 }
 
 export async function createSession(params: { userId: string; role: UserRole; email: string }) {
+  const cookieStore = await cookies();
+  const previousToken = cookieStore.get(SESSION_COOKIE)?.value;
+  if (previousToken) {
+    await db.activeSession.deleteMany({
+      where: { tokenHash: hashSessionToken(previousToken) },
+    }).catch(() => undefined);
+  }
+
   const payload: SessionPayload = {
     userId: params.userId,
     role: params.role,
@@ -105,7 +110,6 @@ export async function createSession(params: { userId: string; role: UserRole; em
     },
   });
 
-  const cookieStore = await cookies();
   cookieStore.set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
@@ -130,6 +134,10 @@ export async function getSessionPayload() {
   const cookieStore = await cookies();
   const token = cookieStore.get(SESSION_COOKIE)?.value;
 
+  const clearCookie = () => {
+    cookieStore.delete(SESSION_COOKIE);
+  };
+
   if (!token) {
     return null;
   }
@@ -137,20 +145,27 @@ export async function getSessionPayload() {
   const [payloadBase64, signature] = token.split(".");
 
   if (!payloadBase64 || !signature) {
+    clearCookie();
     return null;
   }
 
   const expected = signPayload(payloadBase64);
   if (expected.length !== signature.length) {
+    clearCookie();
     return null;
   }
 
   if (!timingSafeEqual(Buffer.from(expected), Buffer.from(signature))) {
+    clearCookie();
     return null;
   }
 
   const payload = decodePayload(payloadBase64);
   if (!payload || payload.exp <= Math.floor(Date.now() / 1000)) {
+    await db.activeSession.deleteMany({
+      where: { tokenHash: hashSessionToken(token) },
+    }).catch(() => undefined);
+    clearCookie();
     return null;
   }
 
@@ -165,6 +180,10 @@ export async function getSessionPayload() {
   });
 
   if (!activeSession || activeSession.expiresAt.getTime() <= Date.now()) {
+    await db.activeSession.deleteMany({
+      where: { tokenHash: hashSessionToken(token) },
+    }).catch(() => undefined);
+    clearCookie();
     return null;
   }
 

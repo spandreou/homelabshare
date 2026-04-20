@@ -39,9 +39,17 @@ type RecentLogRow = {
   timestamp: string;
 };
 
-function formatBytes(value: bigint) {
+function parseStorageBytes(value: string) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return 0;
+  }
+  return parsed;
+}
+
+function formatBytesFromNumber(value: number) {
   const units = ["B", "KB", "MB", "GB", "TB"];
-  let size = Number(value);
+  let size = value;
   let unitIndex = 0;
 
   while (size >= 1024 && unitIndex < units.length - 1) {
@@ -119,10 +127,9 @@ export function AdminDataTables({
     return [...rows].sort((a, b) => {
       if (userSort === "oldest") return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
       if (userSort === "storage") {
-        const left = BigInt(a.storageUsed);
-        const right = BigInt(b.storageUsed);
-        if (right === left) return 0;
-        return right > left ? 1 : -1;
+        const left = parseStorageBytes(a.storageUsed);
+        const right = parseStorageBytes(b.storageUsed);
+        return right - left;
       }
       if (userSort === "files") return b.filesCount - a.filesCount;
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
@@ -284,7 +291,7 @@ export function AdminDataTables({
                       <UserStatusBadge isAdmin={isSelf || user.role === "ADMIN"} isActive={isActive} />
                     </td>
                     <td className="py-3 pr-4 text-zinc-300">{user.filesCount}</td>
-                    <td className="py-3 pr-4 text-zinc-300">{formatBytes(BigInt(user.storageUsed))}</td>
+                    <td className="py-3 pr-4 text-zinc-300">{formatBytesFromNumber(parseStorageBytes(user.storageUsed))}</td>
                     <td className="py-3 pr-4 text-zinc-400">{new Date(user.createdAt).toLocaleString()}</td>
                     <td className="py-3 text-right">
                       {isSelf ? (

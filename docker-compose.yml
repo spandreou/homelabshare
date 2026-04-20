@@ -1,6 +1,6 @@
 services:
   db:
-    image: postgres:16-alpine
+    image: "postgres:15-alpine"
     container_name: homelabshare-db
     restart: unless-stopped
     environment:
@@ -27,8 +27,8 @@ services:
       DATABASE_URL: postgresql://admin:5463@db:5432/homelab_db?schema=public
       NODE_ENV: production
       PORT: 3000
-    ports:
-      - "3000:3000"
+      APP_URL: ${APP_URL:?APP_URL is required}
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required and must be at least 32 characters}
     depends_on:
       db:
         condition: service_healthy
@@ -39,6 +39,6 @@ services:
     image: cloudflare/cloudflared:latest
     container_name: homelabshare-cloudflared
     restart: unless-stopped
-    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    command: tunnel --no-autoupdate --url http://app:3000 run --token ${CLOUDFLARE_TUNNEL_TOKEN}
     depends_on:
       - app

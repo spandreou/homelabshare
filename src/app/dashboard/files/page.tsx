@@ -10,7 +10,7 @@ export default async function FilesPage() {
 
   return (
     <main className="min-h-screen bg-zinc-100/95 px-4 py-6 text-zinc-900 dark:bg-zinc-900 dark:text-zinc-100 sm:px-6 sm:py-10">
-      <div className="mx-auto max-w-6xl space-y-5 sm:space-y-6">
+      <div className="mx-auto w-full max-w-screen-2xl space-y-5 sm:space-y-6">
         <header className="flex flex-col gap-4 rounded-2xl border border-zinc-200/90 bg-white/95 p-4 shadow-sm backdrop-blur-[2px] dark:border-zinc-800/80 dark:bg-zinc-950/90 dark:shadow-black/20 sm:flex-row sm:items-center sm:justify-between sm:p-6">
           <div>
             <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">File Explorer</h1>

@@ -8,6 +8,17 @@ import { getCurrentUser } from "../../../lib/auth";
 import { db } from "../../../lib/db";
 import { UPLOAD_ROOT } from "../../../lib/storage";
 
+function sanitizeFileNameForHeader(name: string) {
+  return path.basename(name).replace(/["\r\n]+/g, "_");
+}
+
+function buildContentDisposition(fileName: string) {
+  const raw = path.basename(fileName).trim() || "file";
+  const asciiFallback = sanitizeFileNameForHeader(raw).replace(/[^\x20-\x7E]+/g, "_") || "file";
+  const encoded = encodeURIComponent(raw);
+  return `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encoded}`;
+}
+
 export async function GET(
   _request: Request,
   context: { params: Promise<{ id: string }> },
@@ -67,7 +78,7 @@ export async function GET(
   return new Response(webStream, {
     headers: {
       "Content-Type": file.type || "application/octet-stream",
-      "Content-Disposition": `attachment; filename="${encodeURIComponent(file.name)}"`,
+      "Content-Disposition": buildContentDisposition(file.name),
       "Content-Length": String(metadata.size),
       "Cache-Control": "private, no-store",
     },

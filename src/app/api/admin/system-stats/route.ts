@@ -9,6 +9,12 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const stats = await collectSystemStats();
-  return NextResponse.json(stats, { status: 200 });
+  try {
+    const stats = await collectSystemStats();
+    return NextResponse.json(stats, { status: 200 });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown system stats API error";
+    console.error("api/admin/system-stats failed", { message });
+    return NextResponse.json({ error: "System stats unavailable" }, { status: 503 });
+  }
 }

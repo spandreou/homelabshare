@@ -11,13 +11,21 @@ export function AdminApprovalToast({
   inviteDeleted,
   deleted,
   cleanupCount,
+  autoCleanupUpdated,
+  autoCleanupRunCount,
+  autoCleanupFailCount,
+  autoCleanupRunError,
 }: {
   approved: boolean;
   resent: boolean;
   mailSent: boolean;
   inviteDeleted: boolean;
-  deleted: "ok" | "self" | null;
+  deleted: "ok" | "self" | "last-admin" | null;
   cleanupCount: number | null;
+  autoCleanupUpdated: boolean;
+  autoCleanupRunCount: number | null;
+  autoCleanupFailCount: number | null;
+  autoCleanupRunError: "confirm" | "disabled" | null;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -81,6 +89,8 @@ export function AdminApprovalToast({
 
     if (deleted === "self") {
       toast.error("You cannot delete your own admin account.");
+    } else if (deleted === "last-admin") {
+      toast.error("Cannot delete the last remaining admin account.");
     } else {
       toast.success("User and all files were deleted.");
     }
@@ -109,6 +119,61 @@ export function AdminApprovalToast({
 
     router.replace(next ? `${pathname}?${next}` : pathname, { scroll: false });
   }, [cleanupCount, pathname, router, searchParams]);
+
+  useEffect(() => {
+    if (!autoCleanupUpdated) {
+      return;
+    }
+
+    toast.success("Auto-clean policy saved.");
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("autoCleanupUpdated");
+    const next = params.toString();
+
+    router.replace(next ? `${pathname}?${next}` : pathname, { scroll: false });
+  }, [autoCleanupUpdated, pathname, router, searchParams]);
+
+  useEffect(() => {
+    if (autoCleanupRunCount === null) {
+      return;
+    }
+
+    if (autoCleanupRunCount === 0) {
+      toast("Auto-clean run completed. No files removed.");
+    } else {
+      const failed = autoCleanupFailCount ?? 0;
+      if (failed > 0) {
+        toast(`Auto-clean removed ${autoCleanupRunCount} file(s), ${failed} failed. Check activity log.`);
+      } else {
+        toast.success(`Auto-clean removed ${autoCleanupRunCount} file(s).`);
+      }
+    }
+
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("autoCleanupRun");
+    params.delete("autoCleanupFail");
+    const next = params.toString();
+
+    router.replace(next ? `${pathname}?${next}` : pathname, { scroll: false });
+  }, [autoCleanupRunCount, autoCleanupFailCount, pathname, router, searchParams]);
+
+  useEffect(() => {
+    if (!autoCleanupRunError) {
+      return;
+    }
+
+    if (autoCleanupRunError === "disabled") {
+      toast.error("Cleanup policy is disabled. Enable it first.");
+    } else {
+      toast.error('Confirmation failed. Type "CLEANUP" to run deletion.');
+    }
+
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("autoCleanupRunError");
+    const next = params.toString();
+
+    router.replace(next ? `${pathname}?${next}` : pathname, { scroll: false });
+  }, [autoCleanupRunError, pathname, router, searchParams]);
 
   return null;
 }

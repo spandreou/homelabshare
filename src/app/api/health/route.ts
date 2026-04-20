@@ -15,7 +15,7 @@ export async function GET() {
         database: "unhealthy",
         message,
       },
-      { status: 200 },
+      { status: 503 },
     );
   }
 }

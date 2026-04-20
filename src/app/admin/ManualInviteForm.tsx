@@ -29,8 +29,17 @@ export function ManualInviteForm() {
       return;
     }
 
-    await navigator.clipboard.writeText(state.code);
-    toast.success("Activation code copied.");
+    if (!navigator.clipboard?.writeText) {
+      toast.error("Clipboard is not available on this browser.");
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(state.code);
+      toast.success("Activation code copied.");
+    } catch {
+      toast.error("Could not copy code. Please copy it manually.");
+    }
   };
 
   return (

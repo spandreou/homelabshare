@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import Link from "next/link";
 
 export default function GlobalError({
@@ -9,6 +10,34 @@ export default function GlobalError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  useEffect(() => {
+    const message = `${error?.name ?? ""} ${error?.message ?? ""}`;
+    const isChunkLoadError =
+      /ChunkLoadError|Failed to load chunk|Loading chunk [\\d]+ failed|Failed to fetch dynamically imported module/i.test(
+        message,
+      );
+
+    if (!isChunkLoadError) {
+      return;
+    }
+
+    try {
+      const key = "homeLabShare_chunk_reload_once";
+      const alreadyRetried = sessionStorage.getItem(key) === "1";
+      if (alreadyRetried) {
+        sessionStorage.removeItem(key);
+        return;
+      }
+
+      sessionStorage.setItem(key, "1");
+      const url = new URL(window.location.href);
+      url.searchParams.set("_r", Date.now().toString());
+      window.location.replace(url.toString());
+    } catch {
+      // If storage/location are blocked, keep normal error UI.
+    }
+  }, [error]);
+
   return (
     <main className="flex min-h-screen items-center justify-center bg-zinc-950 px-6 text-zinc-100">
       <section className="w-full max-w-xl rounded-2xl border border-zinc-800 bg-zinc-900/80 p-8 text-center">

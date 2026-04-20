@@ -24,6 +24,7 @@ export type ShareLinkState = {
   error: string | null;
   url: string | null;
   expiresAt: string | null;
+  shareId: string | null;
 };
 
 export const initialAuthState: AuthActionState = { error: null };
@@ -45,4 +46,5 @@ export const initialShareLinkState: ShareLinkState = {
   error: null,
   url: null,
   expiresAt: null,
+  shareId: null,
 };

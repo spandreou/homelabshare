@@ -5,6 +5,7 @@ import { mkdir, readdir, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { AuditAction, InviteEmailStatus, InviteRequestStatus, UserRole } from "@prisma/client";
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import type {
@@ -16,6 +17,7 @@ import type {
 } from "./action-types";
 import { createSession, destroySession, getCurrentUser, hashPassword, requireAdmin, requireUser, verifyPassword } from "../lib/auth";
 import { db } from "../lib/db";
+import { resolveDisplayFileName } from "../lib/file-name-display";
 import { sendInviteCodeEmail } from "../lib/mail";
 import { collectSystemStats, type SystemStats } from "../lib/system-stats";
 import { UPLOAD_ROOT } from "../lib/storage";
@@ -24,6 +26,13 @@ const INVITE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const MAX_UPLOAD_BYTES = 150 * 1024 * 1024;
 const ADMIN_GLOBAL_FOLDER = "admin_global";
 const LEGACY_STATIC_INVITE = "WELCOME2026";
+const MAX_AUTO_CLEANUP_FILES_PER_RUN = 500;
+const LOGIN_RATE_WINDOW_MS = 60_000;
+const MAX_LOGIN_ATTEMPTS_PER_WINDOW = 20;
+const INVITE_REQUEST_RATE_WINDOW_MS = 10 * 60_000;
+const MAX_INVITE_REQUESTS_PER_WINDOW = 5;
+const LOGIN_RATE_BUCKETS = new Map<string, number[]>();
+const INVITE_REQUEST_RATE_BUCKETS = new Map<string, number[]>();
 
 const registerSchema = z.object({
   email: z.string().email("Please enter a valid email address.").max(254),
@@ -50,9 +59,53 @@ const uploadSchema = z.object({
 const activationCodeSchema = z.object({
   email: z.string().email("Please enter a valid email address.").max(254),
 });
+const inviteRequestSchema = z.object({
+  username: z.string().trim().min(2, "Username is required.").max(80, "Username is too long."),
+  email: z.string().email("Please enter a valid email address.").max(254),
+});
 
 function toBigInt(value: number) {
   return BigInt(Math.trunc(value));
+}
+
+async function resolveAppUrl() {
+  const configured = (process.env.APP_URL ?? "").trim().replace(/\/+$/, "");
+  if (configured) {
+    return configured;
+  }
+
+  const requestHeaders = await headers();
+  const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host");
+  if (!host) {
+    return "";
+  }
+
+  const proto =
+    requestHeaders.get("x-forwarded-proto") ??
+    (process.env.NODE_ENV === "production" ? "https" : "http");
+
+  return `${proto}://${host}`;
+}
+
+function takeRateLimitSlot(
+  buckets: Map<string, number[]>,
+  key: string,
+  windowMs: number,
+  maxAttempts: number,
+) {
+  const now = Date.now();
+  const cutoff = now - windowMs;
+  const existing = buckets.get(key) ?? [];
+  const recent = existing.filter((ts) => ts >= cutoff);
+
+  if (recent.length >= maxAttempts) {
+    buckets.set(key, recent);
+    return false;
+  }
+
+  recent.push(now);
+  buckets.set(key, recent);
+  return true;
 }
 
 function buildInviteCode() {
@@ -146,6 +199,22 @@ export type ExplorerFileEntry = {
   ownerFolder: string;
   relativePath: string;
   isFavorite: boolean;
+  isOwnedByCurrentUser: boolean;
+};
+
+export type AutoCleanupPolicySnapshot = {
+  enabled: boolean;
+  maxAgeDays: number;
+  excludeFavorited: boolean;
+};
+
+export type AutoCleanupPreviewItem = {
+  id: string;
+  name: string;
+  ownerEmail: string;
+  size: number;
+  createdAt: string;
+  lastAccessedAt: string | null;
 };
 
 function isPathInsideRoot(absolutePath: string, rootPath: string) {
@@ -156,23 +225,147 @@ function normalizeRelativePath(input: string) {
   return path.normalize(input).replace(/^(\.\.(\/|\\|$))+/, "").replace(/^\/+/, "");
 }
 
+function sanitizeFileNameForStorage(raw: string) {
+  return path
+    .basename(raw)
+    .replace(/[\/\\]/g, "_")
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .trim();
+}
+
+function normalizeAutoCleanupPolicy(policy: {
+  enabled: boolean;
+  maxAgeDays: number;
+  excludeFavorited: boolean;
+} | null): AutoCleanupPolicySnapshot {
+  return {
+    enabled: policy?.enabled ?? false,
+    maxAgeDays: Math.max(1, policy?.maxAgeDays ?? 30),
+    excludeFavorited: policy?.excludeFavorited ?? true,
+  };
+}
+
+function autoCleanupCutoff(days: number) {
+  return new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+}
+
+function autoCleanupWhere(policy: AutoCleanupPolicySnapshot, cutoff: Date) {
+  return {
+    createdAt: {
+      lt: cutoff,
+    },
+    ...(policy.excludeFavorited
+      ? {
+          favorites: {
+            none: {},
+          },
+        }
+      : {}),
+  };
+}
+
+async function decrementStorageUsedSafely(
+  tx: Pick<typeof db, "$executeRaw">,
+  userId: string,
+  amount: bigint,
+) {
+  await tx.$executeRaw`
+    UPDATE "User"
+    SET "storageUsed" = GREATEST(0, "storageUsed" - ${amount}::bigint)
+    WHERE id = ${userId}
+  `;
+}
+
+async function incrementStorageUsedWithinLimit(
+  tx: Pick<typeof db, "$executeRaw">,
+  userId: string,
+  amount: bigint,
+) {
+  const updatedRows = await tx.$executeRaw`
+    UPDATE "User"
+    SET "storageUsed" = "storageUsed" + ${amount}::bigint
+    WHERE id = ${userId}
+      AND "storageUsed" + ${amount}::bigint <= "storageLimit"
+  `;
+
+  return Number(updatedRows) > 0;
+}
+
+export async function getAutoCleanupPreview(limit = 12): Promise<{
+  policy: AutoCleanupPolicySnapshot;
+  cutoffIso: string;
+  totalCandidates: number;
+  items: AutoCleanupPreviewItem[];
+}> {
+  await requireAdmin();
+  try {
+    const policyRow = await db.autoCleanupPolicy.findUnique({
+      where: { id: 1 },
+      select: {
+        enabled: true,
+        maxAgeDays: true,
+        excludeFavorited: true,
+      },
+    });
+    const policy = normalizeAutoCleanupPolicy(policyRow);
+    const cutoff = autoCleanupCutoff(policy.maxAgeDays);
+    const where = autoCleanupWhere(policy, cutoff);
+
+    const [totalCandidates, items] = await Promise.all([
+      db.file.count({ where }),
+      db.file.findMany({
+        where,
+        orderBy: {
+          createdAt: "asc",
+        },
+        take: Math.max(1, Math.min(limit, 50)),
+        select: {
+          id: true,
+          name: true,
+          size: true,
+          createdAt: true,
+          lastAccessedAt: true,
+          user: {
+            select: {
+              email: true,
+            },
+          },
+        },
+      }),
+    ]);
+
+    return {
+      policy,
+      cutoffIso: cutoff.toISOString(),
+      totalCandidates,
+      items: items.map((item) => ({
+        id: item.id,
+        name: item.name,
+        ownerEmail: item.user.email,
+        size: Number(item.size),
+        createdAt: item.createdAt.toISOString(),
+        lastAccessedAt: item.lastAccessedAt ? item.lastAccessedAt.toISOString() : null,
+      })),
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown cleanup preview error";
+    console.error("getAutoCleanupPreview failed", { message });
+    const policy = normalizeAutoCleanupPolicy(null);
+    const cutoff = autoCleanupCutoff(policy.maxAgeDays);
+    return {
+      policy,
+      cutoffIso: cutoff.toISOString(),
+      totalCandidates: 0,
+      items: [],
+    };
+  }
+}
+
 export async function getFiles(): Promise<ExplorerFileEntry[]> {
   const user = await requireUser();
   const normalizedRoot = path.resolve(UPLOAD_ROOT);
 
   await mkdir(normalizedRoot, { recursive: true });
-
-  const ownerFolders =
-    user.role === "ADMIN"
-      ? [
-          ...(await readdir(normalizedRoot, { withFileTypes: true }).catch(() => []))
-          .filter((entry) => entry.isDirectory())
-          .map((entry) => entry.name),
-          ADMIN_GLOBAL_FOLDER,
-        ]
-      : [user.id];
-
-  const files: ExplorerFileEntry[] = [];
   const dbFiles = await db.file.findMany({
     where: user.role === "ADMIN" ? {} : { userId: user.id },
     select: {
@@ -180,6 +373,8 @@ export async function getFiles(): Promise<ExplorerFileEntry[]> {
       name: true,
       type: true,
       path: true,
+      createdAt: true,
+      userId: true,
     },
   });
   const favoriteRows = await db.fileFavorite.findMany({
@@ -191,52 +386,45 @@ export async function getFiles(): Promise<ExplorerFileEntry[]> {
     },
   });
   const favoriteIds = new Set(favoriteRows.map((row) => row.fileId));
-  const fileMetaByPath = new Map(
-    dbFiles.map((file) => [
-      path.resolve(file.path),
-      {
-        id: file.id,
-        name: file.name,
-        type: file.type,
-      },
-    ]),
-  );
 
-  for (const ownerFolder of Array.from(new Set(ownerFolders))) {
-    const ownerDirectory = path.resolve(path.join(normalizedRoot, normalizeRelativePath(ownerFolder)));
-    if (!isPathInsideRoot(ownerDirectory, normalizedRoot)) {
-      continue;
-    }
+  const files = (
+    await Promise.all(
+      dbFiles.map(async (file): Promise<ExplorerFileEntry | null> => {
+        const absoluteFilePath = path.resolve(file.path);
+        if (!isPathInsideRoot(absoluteFilePath, normalizedRoot)) {
+          return null;
+        }
 
-    const entries = await readdir(ownerDirectory, { withFileTypes: true }).catch(() => []);
-    for (const entry of entries) {
-      if (!entry.isFile()) {
-        continue;
-      }
+        const metadata = await stat(absoluteFilePath).catch(() => null);
+        if (!metadata) {
+          return null;
+        }
 
-      const absoluteFilePath = path.resolve(path.join(ownerDirectory, entry.name));
-      if (!isPathInsideRoot(absoluteFilePath, normalizedRoot)) {
-        continue;
-      }
+        const relativePath = normalizeRelativePath(path.relative(normalizedRoot, absoluteFilePath)).replace(/\\/g, "/");
+        if (!relativePath) {
+          return null;
+        }
 
-      const metadata = await stat(absoluteFilePath).catch(() => null);
-      if (!metadata) {
-        continue;
-      }
-      const dbMeta = fileMetaByPath.get(absoluteFilePath);
+        const ownerFolder = relativePath.split("/")[0] ?? "";
+        const displayName = resolveDisplayFileName({
+          originalName: file.name,
+          storagePath: absoluteFilePath,
+        });
 
-      files.push({
-        id: dbMeta?.id ?? null,
-        name: dbMeta?.name ?? entry.name,
-        size: metadata.size,
-        createdAt: metadata.birthtime.toISOString(),
-        fileType: dbMeta?.type || path.extname(entry.name).replace(".", "").toLowerCase() || "file",
-        ownerFolder,
-        relativePath: `${ownerFolder}/${entry.name}`,
-        isFavorite: dbMeta?.id ? favoriteIds.has(dbMeta.id) : false,
-      });
-    }
-  }
+        return {
+          id: file.id,
+          name: displayName,
+          size: metadata.size,
+          createdAt: file.createdAt.toISOString(),
+          fileType: file.type || path.extname(absoluteFilePath).replace(".", "").toLowerCase() || "file",
+          ownerFolder,
+          relativePath,
+          isFavorite: favoriteIds.has(file.id),
+          isOwnedByCurrentUser: file.userId === user.id,
+        };
+      }),
+    )
+  ).filter((entry): entry is ExplorerFileEntry => entry !== null);
 
   return files.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 }
@@ -260,7 +448,7 @@ export async function toggleFavoriteAction(fileId: string) {
     return;
   }
 
-  if (user.role !== "ADMIN" && file.userId !== user.id) {
+  if (file.userId !== user.id) {
     return;
   }
 
@@ -302,11 +490,15 @@ export async function generateShareLink(
   _prevState: ShareLinkState,
   formData: FormData,
 ): Promise<ShareLinkState> {
-  const user = await requireAdmin();
+  const user = await requireUser();
   const fileId = String(formData.get("fileId") ?? "").trim();
+  const rawExpiryHours = Number(String(formData.get("expiryHours") ?? "24"));
+  const expiryHours = Number.isFinite(rawExpiryHours)
+    ? Math.min(24 * 30, Math.max(1, Math.trunc(rawExpiryHours)))
+    : 24;
 
   if (!fileId) {
-    return { error: "Missing file id.", url: null, expiresAt: null };
+    return { error: "Missing file id.", url: null, expiresAt: null, shareId: null };
   }
 
   const file = await db.file.findUnique({
@@ -319,15 +511,15 @@ export async function generateShareLink(
   });
 
   if (!file) {
-    return { error: "File not found.", url: null, expiresAt: null };
+    return { error: "File not found.", url: null, expiresAt: null, shareId: null };
   }
 
-  if (user.role !== "ADMIN" && file.userId !== user.id) {
-    return { error: "Not allowed.", url: null, expiresAt: null };
+  if (file.userId !== user.id) {
+    return { error: "Not allowed.", url: null, expiresAt: null, shareId: null };
   }
 
-  const shareId = `${randomUUID().slice(0, 3)}-${randomUUID().slice(0, 3)}`.toLowerCase();
-  const expiresAt = new Date(Date.now() + INVITE_MAX_AGE_MS);
+  const shareId = randomUUID();
+  const expiresAt = new Date(Date.now() + expiryHours * 60 * 60 * 1000);
 
   await db.shareLink.create({
     data: {
@@ -345,14 +537,59 @@ export async function generateShareLink(
     },
   }).catch(() => undefined);
 
-  const appUrl = (process.env.APP_URL ?? "").replace(/\/+$/, "");
+  const appUrl = await resolveAppUrl();
   const shareUrl = appUrl ? `${appUrl}/sh/${shareId}` : `/sh/${shareId}`;
 
   return {
     error: null,
     url: shareUrl,
     expiresAt: expiresAt.toISOString(),
+    shareId,
   };
+}
+
+export async function revokeShareLink(shareId: string) {
+  const user = await requireUser();
+  const id = String(shareId ?? "").trim();
+  if (!id) {
+    return;
+  }
+
+  const share = await db.shareLink.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      file: {
+        select: {
+          id: true,
+          name: true,
+          userId: true,
+        },
+      },
+    },
+  });
+
+  if (!share?.file) {
+    return;
+  }
+
+  if (share.file.userId !== user.id) {
+    return;
+  }
+
+  await db.shareLink.delete({
+    where: { id: share.id },
+  }).catch(() => undefined);
+
+  await db.auditLog.create({
+    data: {
+      userId: user.id,
+      action: AuditAction.DELETE,
+      fileName: `[SHARE-REVOKE] ${share.file.name}`,
+    },
+  }).catch(() => undefined);
+
+  revalidatePath("/dashboard/files");
 }
 
 export async function zipFiles(formData: FormData) {
@@ -377,9 +614,20 @@ export async function zipFiles(formData: FormData) {
     ),
   );
 
+  const normalizedRoot = path.resolve(UPLOAD_ROOT);
+  const ownedPaths = new Set(
+    (
+      await db.file.findMany({
+        where: { userId: user.id },
+        select: { path: true },
+      })
+    )
+      .map((row) => path.resolve(row.path))
+      .filter((candidate) => isPathInsideRoot(candidate, normalizedRoot)),
+  );
   const allowed = cleaned.filter((item) => {
-    const ownerFolder = item.split("/")[0];
-    return user.role === "ADMIN" || ownerFolder === user.id;
+    const absolutePath = path.resolve(path.join(UPLOAD_ROOT, item));
+    return isPathInsideRoot(absolutePath, normalizedRoot) && ownedPaths.has(absolutePath);
   });
 
   if (allowed.length === 0) {
@@ -392,7 +640,27 @@ export async function zipFiles(formData: FormData) {
 
 export async function getSystemStats(): Promise<SystemStats> {
   await requireAdmin();
-  return collectSystemStats();
+  try {
+    return await collectSystemStats();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown system stats error";
+    console.error("getSystemStats failed", { message });
+    return {
+      cpuUsagePercent: 0,
+      cpuTempC: null,
+      ramTotalGb: 0,
+      ramUsedGb: 0,
+      ramFreeGb: 0,
+      ramUsedPercent: 0,
+      diskTotalGb: 0,
+      diskFreeGb: 0,
+      diskUsedPercent: 0,
+      uptimeSeconds: 0,
+      registeredUsers: 0,
+      activeInviteCodes: 0,
+      collectedAt: new Date().toISOString(),
+    };
+  }
 }
 
 export async function registerAction(
@@ -503,6 +771,13 @@ export async function loginAction(
 
   const { email, password } = parsed.data;
   const nextPath = String(formData.get("next") ?? "").trim();
+  const requestHeaders = await headers();
+  const forwardedFor = requestHeaders.get("cf-connecting-ip") ?? requestHeaders.get("x-forwarded-for") ?? requestHeaders.get("x-real-ip");
+  const clientIp = forwardedFor?.split(",")[0]?.trim() || "unknown";
+  const loginBucketKey = `${clientIp}:${email}`;
+  if (!takeRateLimitSlot(LOGIN_RATE_BUCKETS, loginBucketKey, LOGIN_RATE_WINDOW_MS, MAX_LOGIN_ATTEMPTS_PER_WINDOW)) {
+    return { error: "Too many login attempts. Please wait a minute and try again." };
+  }
 
   let userResult: {
     id: string;
@@ -540,7 +815,9 @@ export async function loginAction(
       role: user.role,
       email: user.email,
     });
-  } catch {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown session creation error";
+    console.error("loginAction:createSession failed", { message, userId: user.id });
     return { error: "Could not start your session right now. Please try again." };
   }
   await db.auditLog.create({
@@ -607,8 +884,13 @@ export async function uploadFileAction(
   await writeFile(destination, Buffer.from(arrayBuffer));
 
   try {
-    await db.$transaction([
-      db.file.create({
+    const saved = await db.$transaction(async (tx) => {
+      const canStore = await incrementStorageUsedWithinLimit(tx, user.id, incomingSize);
+      if (!canStore) {
+        return false;
+      }
+
+      await tx.file.create({
         data: {
           name: selected.name,
           size: incomingSize,
@@ -616,23 +898,22 @@ export async function uploadFileAction(
           path: destination,
           userId: user.id,
         },
-      }),
-      db.user.update({
-        where: { id: user.id },
-        data: {
-          storageUsed: {
-            increment: incomingSize,
-          },
-        },
-      }),
-      db.auditLog.create({
+      });
+      await tx.auditLog.create({
         data: {
           userId: user.id,
           action: AuditAction.UPLOAD,
           fileName: selected.name,
         },
-      }),
-    ]);
+      });
+
+      return true;
+    });
+
+    if (!saved) {
+      await unlink(destination).catch(() => undefined);
+      return { error: "Not enough storage space for this file.", success: null };
+    }
   } catch {
     await unlink(destination).catch(() => undefined);
     return { error: "Upload failed. Please try again.", success: null };
@@ -663,7 +944,9 @@ export async function uploadFile(
     };
   }
 
-  const safeOriginalName = path.basename(selected.name).replace(/[^\w.\- ]+/g, "_");
+  const explicitOriginalName = String(formData.get("originalName") ?? "").trim();
+  const originalName = path.basename(explicitOriginalName || selected.name).trim() || `upload-${Date.now()}`;
+  const storageSafeName = sanitizeFileNameForStorage(originalName) || `upload-${Date.now()}`;
   const ownerFolder = user.role === "ADMIN" ? ADMIN_GLOBAL_FOLDER : user.id;
   const ownerDirectory = path.resolve(path.join(UPLOAD_ROOT, normalizeRelativePath(ownerFolder)));
   const normalizedRoot = path.resolve(UPLOAD_ROOT);
@@ -673,7 +956,7 @@ export async function uploadFile(
 
   await mkdir(ownerDirectory, { recursive: true });
 
-  const uniqueName = `${Date.now()}-${randomUUID()}-${safeOriginalName}`;
+  const uniqueName = `${Date.now()}-${randomUUID()}-${storageSafeName}`;
   const destination = path.resolve(path.join(ownerDirectory, uniqueName));
   if (!isPathInsideRoot(destination, normalizedRoot)) {
     return { error: "Invalid upload path.", success: null };
@@ -682,42 +965,46 @@ export async function uploadFile(
   const arrayBuffer = await selected.arrayBuffer();
   await writeFile(destination, Buffer.from(arrayBuffer));
 
-  const extensionType = path.extname(safeOriginalName).replace(".", "").toLowerCase();
+  const extensionType = path.extname(originalName).replace(".", "").toLowerCase();
 
   try {
-    await db.$transaction([
-      db.file.create({
+    const saved = await db.$transaction(async (tx) => {
+      const canStore = await incrementStorageUsedWithinLimit(tx, user.id, incomingSize);
+      if (!canStore) {
+        return false;
+      }
+
+      await tx.file.create({
         data: {
-          name: safeOriginalName,
+          name: originalName,
           size: incomingSize,
           type: selected.type || extensionType || "file",
           path: destination,
           userId: user.id,
         },
-      }),
-      db.user.update({
-        where: { id: user.id },
-        data: {
-          storageUsed: {
-            increment: incomingSize,
-          },
-        },
-      }),
-      db.auditLog.create({
+      });
+      await tx.auditLog.create({
         data: {
           userId: user.id,
           action: AuditAction.UPLOAD,
-          fileName: safeOriginalName,
+          fileName: originalName,
         },
-      }),
-    ]);
+      });
+
+      return true;
+    });
+
+    if (!saved) {
+      await unlink(destination).catch(() => undefined);
+      return { error: "Not enough storage space for this file.", success: null };
+    }
   } catch {
     await unlink(destination).catch(() => undefined);
     return { error: "Upload failed. Please try again.", success: null };
   }
 
   revalidatePath("/dashboard/files");
-  return { error: null, success: `Uploaded ${safeOriginalName}` };
+  return { error: null, success: `Uploaded ${originalName}` };
 }
 
 export async function deleteFileAction(fileId: string) {
@@ -744,26 +1031,19 @@ export async function deleteFileAction(fileId: string) {
     return;
   }
 
-  await db.$transaction([
-    db.file.delete({
+  await db.$transaction(async (tx) => {
+    await tx.file.delete({
       where: { id: file.id },
-    }),
-    db.user.update({
-      where: { id: user.id },
-      data: {
-        storageUsed: {
-          decrement: file.size,
-        },
-      },
-    }),
-    db.auditLog.create({
+    });
+    await decrementStorageUsedSafely(tx, user.id, file.size);
+    await tx.auditLog.create({
       data: {
         userId: user.id,
         action: AuditAction.DELETE,
         fileName: file.name,
       },
-    }),
-  ]);
+    });
+  });
 
   await unlink(file.path).catch(() => undefined);
   revalidatePath("/dashboard");
@@ -773,11 +1053,6 @@ export async function deleteFile(relativePath: string) {
   const user = await requireUser();
   const cleanedRelativePath = normalizeRelativePath(String(relativePath ?? ""));
   if (!cleanedRelativePath) {
-    return;
-  }
-
-  const ownerFolder = cleanedRelativePath.split("/")[0];
-  if (user.role !== "ADMIN" && ownerFolder !== user.id) {
     return;
   }
 
@@ -791,7 +1066,7 @@ export async function deleteFile(relativePath: string) {
   const metadata = await db.file.findFirst({
     where: {
       path: absolutePath,
-      ...(user.role === "ADMIN" ? {} : { userId: user.id }),
+      userId: user.id,
     },
     select: {
       id: true,
@@ -803,24 +1078,17 @@ export async function deleteFile(relativePath: string) {
 
   await unlink(absolutePath).catch(() => undefined);
   if (metadata) {
-    await db.$transaction([
-      db.file.delete({ where: { id: metadata.id } }),
-      db.user.update({
-        where: { id: metadata.userId },
-        data: {
-          storageUsed: {
-            decrement: metadata.size,
-          },
-        },
-      }),
-      db.auditLog.create({
+    await db.$transaction(async (tx) => {
+      await tx.file.delete({ where: { id: metadata.id } });
+      await decrementStorageUsedSafely(tx, metadata.userId, metadata.size);
+      await tx.auditLog.create({
         data: {
           userId: metadata.userId,
           action: AuditAction.DELETE,
           fileName: metadata.name,
         },
-      }),
-    ]).catch(() => undefined);
+      });
+    }).catch(() => undefined);
   }
 
   revalidatePath("/dashboard/files");
@@ -833,14 +1101,20 @@ export async function downloadFile(relativePath: string) {
     return;
   }
 
-  const ownerFolder = cleanedRelativePath.split("/")[0];
-  if (user.role !== "ADMIN" && ownerFolder !== user.id) {
-    return;
-  }
-
   const normalizedRoot = path.resolve(UPLOAD_ROOT);
   const absolutePath = path.resolve(path.join(UPLOAD_ROOT, cleanedRelativePath));
   if (!isPathInsideRoot(absolutePath, normalizedRoot)) {
+    return;
+  }
+
+  const existsForUser = await db.file.findFirst({
+    where: {
+      path: absolutePath,
+      userId: user.id,
+    },
+    select: { id: true },
+  });
+  if (!existsForUser) {
     return;
   }
 
@@ -872,11 +1146,23 @@ export async function requestInvite(
   _prevState: InviteRequestActionState,
   formData: FormData,
 ): Promise<InviteRequestActionState> {
-  const username = String(formData.get("username") ?? "").trim();
-  const email = String(formData.get("email") ?? "").trim().toLowerCase();
+  const parsed = inviteRequestSchema.safeParse({
+    username: String(formData.get("username") ?? ""),
+    email: String(formData.get("email") ?? "").trim().toLowerCase(),
+  });
 
-  if (!username || !email) {
-    return { error: "Username and email are required.", success: null };
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid invite request.", success: null };
+  }
+
+  const { username, email } = parsed.data;
+
+  const requestHeaders = await headers();
+  const forwardedFor = requestHeaders.get("cf-connecting-ip") ?? requestHeaders.get("x-forwarded-for") ?? requestHeaders.get("x-real-ip");
+  const clientIp = forwardedFor?.split(",")[0]?.trim() || "unknown";
+  const inviteBucketKey = `${clientIp}:${email}`;
+  if (!takeRateLimitSlot(INVITE_REQUEST_RATE_BUCKETS, inviteBucketKey, INVITE_REQUEST_RATE_WINDOW_MS, MAX_INVITE_REQUESTS_PER_WINDOW)) {
+    return { error: "Too many invite requests. Please try again later.", success: null };
   }
 
   const existingPending = await db.inviteRequest.findFirst({
@@ -906,7 +1192,7 @@ export async function requestInvite(
 }
 
 export async function approveInviteRequest(requestId: string) {
-  await requireAdmin();
+  const admin = await requireAdmin();
 
   const request = await db.inviteRequest.findUnique({
     where: { id: requestId },
@@ -950,6 +1236,13 @@ export async function approveInviteRequest(requestId: string) {
       emailSentAt: emailSent ? new Date() : null,
     },
   });
+  await db.auditLog.create({
+    data: {
+      userId: admin.id,
+      action: AuditAction.SHARE,
+      fileName: `[INVITE-APPROVE] ${request.email}`,
+    },
+  }).catch(() => undefined);
 
   revalidatePath("/admin");
   redirect(emailSent ? "/admin?approved=1" : "/admin?approved=1&mail=0");
@@ -958,7 +1251,7 @@ export async function approveInviteRequest(requestId: string) {
 export const approveInvite = approveInviteRequest;
 
 export async function resendInviteEmail(requestId: string) {
-  await requireAdmin();
+  const admin = await requireAdmin();
 
   const request = await db.inviteRequest.findUnique({
     where: { id: requestId },
@@ -1002,21 +1295,38 @@ export async function resendInviteEmail(requestId: string) {
       emailSentAt: emailSent ? new Date() : null,
     },
   });
+  await db.auditLog.create({
+    data: {
+      userId: admin.id,
+      action: AuditAction.SHARE,
+      fileName: `[INVITE-RESEND] ${request.email}`,
+    },
+  }).catch(() => undefined);
 
   revalidatePath("/admin");
   redirect(emailSent ? "/admin?resent=1" : "/admin?resent=1&mail=0");
 }
 
 export async function deleteInviteRequest(requestId: string) {
-  await requireAdmin();
+  const admin = await requireAdmin();
 
   if (!requestId) {
     return;
   }
 
-  await db.inviteRequest.delete({
+  const deleted = await db.inviteRequest.delete({
     where: { id: requestId },
-  }).catch(() => undefined);
+    select: { email: true },
+  }).catch(() => null);
+  if (deleted) {
+    await db.auditLog.create({
+      data: {
+        userId: admin.id,
+        action: AuditAction.DELETE,
+        fileName: `[INVITE-DELETE] ${deleted.email}`,
+      },
+    }).catch(() => undefined);
+  }
 
   revalidatePath("/admin");
   redirect("/admin?inviteDeleted=1");
@@ -1026,7 +1336,7 @@ export async function generateManualInvite(
   _prevState: ManualInviteState,
   formData: FormData,
 ): Promise<ManualInviteState> {
-  await requireAdmin();
+  const admin = await requireAdmin();
 
   const parsed = activationCodeSchema.safeParse({
     email: String(formData.get("email") ?? "").trim().toLowerCase(),
@@ -1065,6 +1375,13 @@ export async function generateManualInvite(
       },
     }),
   ]);
+  await db.auditLog.create({
+    data: {
+      userId: admin.id,
+      action: AuditAction.SHARE,
+      fileName: `[MANUAL-INVITE] ${email}`,
+    },
+  }).catch(() => undefined);
 
   revalidatePath("/admin");
   return {
@@ -1090,6 +1407,7 @@ export async function deleteUserByAdminAction(userId: string) {
     where: { id: userId },
     select: {
       id: true,
+      role: true,
       files: {
         select: {
           path: true,
@@ -1102,11 +1420,19 @@ export async function deleteUserByAdminAction(userId: string) {
     return;
   }
 
+  if (target.role === UserRole.ADMIN) {
+    const adminCount = await db.user.count({
+      where: { role: UserRole.ADMIN },
+    });
+    if (adminCount <= 1) {
+      redirect("/admin?deleted=last-admin");
+    }
+  }
+
   const normalizedRoot = path.resolve(UPLOAD_ROOT);
   const filesToDelete = target.files
     .map((file) => {
-      const safeFileName = path.basename(file.path);
-      return path.resolve(path.join(UPLOAD_ROOT, safeFileName));
+      return path.resolve(file.path);
     })
     .filter((candidate) => {
       return candidate === normalizedRoot || candidate.startsWith(`${normalizedRoot}${path.sep}`);
@@ -1115,6 +1441,13 @@ export async function deleteUserByAdminAction(userId: string) {
   await db.user.delete({
     where: { id: target.id },
   });
+  await db.auditLog.create({
+    data: {
+      userId: admin.id,
+      action: AuditAction.DELETE,
+      fileName: `[ADMIN-DELETE-USER] ${target.id}`,
+    },
+  }).catch(() => undefined);
 
   await Promise.all(filesToDelete.map((filePath) => unlink(filePath).catch(() => undefined)));
 
@@ -1124,7 +1457,7 @@ export async function deleteUserByAdminAction(userId: string) {
 }
 
 export async function cleanupOrphanedFilesAction() {
-  await requireAdmin();
+  const admin = await requireAdmin();
 
   const normalizedRoot = path.resolve(UPLOAD_ROOT);
   const [dbFiles, diskFiles] = await Promise.all([
@@ -1136,8 +1469,10 @@ export async function cleanupOrphanedFilesAction() {
     listFilesRecursively(normalizedRoot),
   ]);
 
-  const registeredFileNames = new Set(
-    dbFiles.map((file) => path.basename(file.path)),
+  const registeredFiles = new Set(
+    dbFiles
+      .map((file) => path.resolve(file.path))
+      .filter((candidate) => candidate === normalizedRoot || candidate.startsWith(`${normalizedRoot}${path.sep}`)),
   );
 
   let removedCount = 0;
@@ -1152,8 +1487,7 @@ export async function cleanupOrphanedFilesAction() {
       continue;
     }
 
-    const diskFileName = path.basename(normalizedDiskFile);
-    if (registeredFileNames.has(diskFileName)) {
+    if (registeredFiles.has(normalizedDiskFile)) {
       continue;
     }
 
@@ -1161,7 +1495,119 @@ export async function cleanupOrphanedFilesAction() {
     removedCount += 1;
   }
 
+  await db.auditLog.create({
+    data: {
+      userId: admin.id,
+      action: AuditAction.DELETE,
+      fileName: `[ORPHAN-CLEANUP] removed=${removedCount}`,
+    },
+  }).catch(() => undefined);
+
   revalidatePath("/admin");
   revalidatePath("/admin/stats");
   redirect(`/admin?cleanup=${removedCount}`);
+}
+
+export async function updateAutoCleanupPolicyAction(formData: FormData) {
+  const admin = await requireAdmin();
+
+  const enabled = String(formData.get("enabled") ?? "") === "on";
+  const excludeFavorited = String(formData.get("excludeFavorited") ?? "") === "on";
+  const rawDays = Number(String(formData.get("maxAgeDays") ?? "30"));
+  const maxAgeDays = Number.isFinite(rawDays) ? Math.min(3650, Math.max(1, Math.trunc(rawDays))) : 30;
+
+  await db.autoCleanupPolicy.upsert({
+    where: { id: 1 },
+    update: {
+      enabled,
+      maxAgeDays,
+      excludeFavorited,
+    },
+    create: {
+      id: 1,
+      enabled,
+      maxAgeDays,
+      excludeFavorited,
+    },
+  });
+  await db.auditLog.create({
+    data: {
+      userId: admin.id,
+      action: AuditAction.SHARE,
+      fileName: `[AUTO-CLEANUP-POLICY] enabled=${enabled} days=${maxAgeDays} excludeFavorited=${excludeFavorited}`,
+    },
+  }).catch(() => undefined);
+
+  revalidatePath("/admin");
+  redirect("/admin?autoCleanupUpdated=1");
+}
+
+export async function runAutoCleanupAction(formData: FormData) {
+  const admin = await requireAdmin();
+  const confirmation = String(formData.get("confirm") ?? "").trim().toUpperCase();
+
+  if (confirmation !== "CLEANUP") {
+    redirect("/admin?autoCleanupRunError=confirm");
+  }
+
+  const policyRow = await db.autoCleanupPolicy.findUnique({
+    where: { id: 1 },
+    select: {
+      enabled: true,
+      maxAgeDays: true,
+      excludeFavorited: true,
+    },
+  });
+  const policy = normalizeAutoCleanupPolicy(policyRow);
+
+  if (!policy.enabled) {
+    redirect("/admin?autoCleanupRunError=disabled");
+  }
+
+  const cutoff = autoCleanupCutoff(policy.maxAgeDays);
+  const where = autoCleanupWhere(policy, cutoff);
+  const candidates = await db.file.findMany({
+    where,
+    orderBy: {
+      createdAt: "asc",
+    },
+    take: MAX_AUTO_CLEANUP_FILES_PER_RUN,
+    select: {
+      id: true,
+      name: true,
+      size: true,
+      userId: true,
+      path: true,
+    },
+  });
+
+  let removedCount = 0;
+  let failedCount = 0;
+
+  for (const file of candidates) {
+    try {
+      await unlink(file.path).catch(() => undefined);
+      await db.$transaction(async (tx) => {
+        await tx.file.delete({
+          where: { id: file.id },
+        });
+        await decrementStorageUsedSafely(tx, file.userId, file.size);
+        await tx.auditLog.create({
+          data: {
+            userId: admin.id,
+            action: AuditAction.DELETE,
+            fileName: `[AUTO-CLEAN] ${file.name}`,
+          },
+        });
+      });
+      removedCount += 1;
+    } catch {
+      failedCount += 1;
+    }
+  }
+
+  revalidatePath("/admin");
+  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/files");
+  redirect(`/admin?autoCleanupRun=${removedCount}&autoCleanupFail=${failedCount}`);
 }

@@ -4,6 +4,7 @@ import { useActionState, useCallback, useEffect, useMemo, useRef, useState } fro
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useFormStatus } from "react-dom";
+import toast from "react-hot-toast";
 import {
   Download,
   FileArchive,
@@ -16,10 +17,12 @@ import {
   Star,
   Trash2,
   UploadCloud,
+  Link as UrlIcon,
   X,
 } from "lucide-react";
 import { initialShareLinkState } from "../action-types";
-import { deleteFile, downloadFile, generateShareLink, toggleFavoriteAction, zipFiles } from "../actions";
+import { deleteFile, downloadFile, generateShareLink, revokeShareLink, toggleFavoriteAction, zipFiles } from "../actions";
+import { resolveDisplayFileName } from "../../lib/file-name-display";
 
 type FileExplorerEntry = {
   id: string | null;
@@ -30,6 +33,7 @@ type FileExplorerEntry = {
   ownerFolder: string;
   relativePath: string;
   isFavorite: boolean;
+  isOwnedByCurrentUser: boolean;
 };
 
 type FileExplorerProps = {
@@ -47,6 +51,8 @@ type UploadQueueItem = {
   id: string;
   fileName: string;
   fileSize: number;
+  source: "file" | "url";
+  sourceUrl?: string;
   progress: number;
   status: UploadStatus;
   error: string | null;
@@ -95,17 +101,37 @@ function formatBytes(value: number) {
 }
 
 function getPreviewKind(fileType: string): PreviewKind {
-  const ext = fileType.toLowerCase();
-  if (IMAGE_EXTENSIONS.has(ext)) {
+  const normalized = fileType.trim().toLowerCase();
+  const maybeExt = normalized.includes("/") ? normalized.split("/").pop() ?? normalized : normalized;
+
+  if (normalized.startsWith("image/") || IMAGE_EXTENSIONS.has(maybeExt)) {
     return "image";
   }
-  if (PDF_EXTENSIONS.has(ext)) {
+  if (normalized === "application/pdf" || PDF_EXTENSIONS.has(maybeExt)) {
     return "pdf";
   }
-  if (TEXT_EXTENSIONS.has(ext)) {
+  if (
+    normalized.startsWith("text/") ||
+    normalized === "application/json" ||
+    normalized === "application/xml" ||
+    TEXT_EXTENSIONS.has(maybeExt)
+  ) {
     return "text";
   }
   return "unsupported";
+}
+
+async function copyTextToClipboard(value: string) {
+  if (!navigator.clipboard?.writeText) {
+    return false;
+  }
+
+  try {
+    await navigator.clipboard.writeText(value);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function buildPreviewUrl(relativePath: string, options?: { thumbnail?: boolean }) {
@@ -151,6 +177,7 @@ function FileVisual({
 }) {
   const category = getFileCategory(file.fileType);
   const [thumbError, setThumbError] = useState(false);
+  const displayName = resolveDisplayFileName({ originalName: file.name });
 
   if (category !== "image" || thumbError) {
     return <FileIcon fileType={file.fileType} large={large} />;
@@ -162,7 +189,7 @@ function FileVisual({
     <span className={`relative overflow-hidden rounded-md border border-zinc-300 bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800 ${sizeClass}`}>
       <Image
         src={buildPreviewUrl(file.relativePath, { thumbnail: true })}
-        alt={file.name}
+        alt={displayName}
         fill
         unoptimized
         sizes={large ? "44px" : "32px"}
@@ -198,13 +225,13 @@ function UploadStatusBadge({ status }: { status: UploadStatus }) {
   return <span className="rounded-full border border-red-500/80 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-300">Failed</span>;
 }
 
-function DeleteButton() {
+function DeleteButton({ disabled = false }: { disabled?: boolean }) {
   const { pending } = useFormStatus();
 
   return (
     <button
       type="submit"
-      disabled={pending}
+      disabled={disabled || pending}
       className="inline-flex min-h-9 items-center gap-1 rounded-md border border-red-700/85 px-3 py-2 text-[11px] font-semibold text-red-300 transition duration-200 hover:scale-[1.01] hover:bg-red-900/35 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 sm:text-xs"
     >
       <Trash2 className="h-3.5 w-3.5" />
@@ -213,13 +240,13 @@ function DeleteButton() {
   );
 }
 
-function DownloadButton() {
+function DownloadButton({ disabled = false }: { disabled?: boolean }) {
   const { pending } = useFormStatus();
 
   return (
     <button
       type="submit"
-      disabled={pending}
+      disabled={disabled || pending}
       className="inline-flex min-h-9 items-center gap-1 rounded-md border border-zinc-300/90 bg-white/70 px-3 py-2 text-[11px] font-semibold text-zinc-700 transition duration-200 hover:scale-[1.01] hover:border-green-500 hover:text-green-600 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900/70 dark:text-zinc-200 sm:text-xs"
     >
       <Download className="h-3.5 w-3.5" />
@@ -278,7 +305,21 @@ function FavoriteButton({ isFavorite, disabled }: { isFavorite: boolean; disable
   );
 }
 
-function ShareModal({ url, expiresAt, onClose }: { url: string; expiresAt: string; onClose: () => void }) {
+function ShareModal({
+  url,
+  expiresAt,
+  shareId,
+  onClose,
+  onRevoked,
+}: {
+  url: string;
+  expiresAt: string;
+  shareId: string;
+  onClose: () => void;
+  onRevoked: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
       <div className="w-full max-w-lg rounded-2xl border border-zinc-700/90 bg-zinc-950/95 p-6 text-zinc-100 shadow-xl shadow-black/35 backdrop-blur-[2px]">
@@ -295,11 +336,40 @@ function ShareModal({ url, expiresAt, onClose }: { url: string; expiresAt: strin
         <div className="mt-4 flex gap-2">
           <button
             type="button"
-            onClick={() => navigator.clipboard.writeText(url)}
+            onClick={async () => {
+              const copiedOk = await copyTextToClipboard(url);
+              if (!copiedOk) {
+                toast.error("Clipboard is not available on this browser.");
+                return;
+              }
+              setCopied(true);
+              window.setTimeout(() => setCopied(false), 1400);
+            }}
             className="rounded-md bg-green-600 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-black hover:bg-green-500"
           >
-            Copy Link
+            {copied ? "Link Copied" : "Copy Link"}
           </button>
+          <a
+            href={`${url}?preview=1`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="rounded-md border border-zinc-700 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-200"
+          >
+            Open Preview
+          </a>
+          <form
+            action={async () => {
+              await revokeShareLink(shareId);
+              onRevoked();
+            }}
+          >
+            <button
+              type="submit"
+              className="rounded-md border border-red-700/85 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-red-300"
+            >
+              Revoke Link
+            </button>
+          </form>
           <button
             type="button"
             onClick={onClose}
@@ -315,15 +385,19 @@ function ShareModal({ url, expiresAt, onClose }: { url: string; expiresAt: strin
 
 function MobileActionSheet({
   file,
-  isAdmin,
   onClose,
   onShare,
+  expiryHours,
+  canManage,
 }: {
   file: FileExplorerEntry;
-  isAdmin: boolean;
   onClose: () => void;
   onShare: (formData: FormData) => Promise<void>;
+  expiryHours: number;
+  canManage: boolean;
 }) {
+  const displayName = resolveDisplayFileName({ originalName: file.name });
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -343,17 +417,18 @@ function MobileActionSheet({
         className="absolute inset-x-0 bottom-0 rounded-t-2xl border border-zinc-800 bg-zinc-950 p-4 shadow-2xl"
         role="dialog"
         aria-modal="true"
-        aria-label={`Actions for ${file.name}`}
+        aria-label={`Actions for ${displayName}`}
         onClick={(event) => event.stopPropagation()}
       >
         <div className="mb-3 h-1.5 w-10 rounded-full bg-zinc-700 mx-auto" />
-        <p className="mb-3 truncate text-sm font-semibold text-zinc-200">{file.name}</p>
+        <p className="mb-3 truncate text-sm font-semibold text-zinc-200" title={displayName}>{displayName}</p>
         <div className="grid gap-2">
           <form action={toggleFavoriteAction.bind(null, file.id ?? "")}>
             <button
               type="submit"
+              disabled={!canManage || !file.id}
               onClick={onClose}
-              className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm font-semibold text-zinc-100 transition duration-200 active:scale-[0.98]"
+              className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm font-semibold text-zinc-100 transition duration-200 active:scale-[0.98] disabled:opacity-60"
             >
               <Star className={`h-4 w-4 ${file.isFavorite ? "fill-amber-400 text-amber-400" : "text-zinc-300"}`} />
               {file.isFavorite ? "Remove Favorite" : "Add Favorite"}
@@ -362,36 +437,37 @@ function MobileActionSheet({
           <form action={downloadFile.bind(null, file.relativePath)}>
             <button
               type="submit"
+              disabled={!canManage}
               onClick={onClose}
-              className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm font-semibold text-zinc-100 transition duration-200 active:scale-[0.98]"
+              className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm font-semibold text-zinc-100 transition duration-200 active:scale-[0.98] disabled:opacity-60"
             >
               <Download className="h-4 w-4" />
               Download
             </button>
           </form>
-          {isAdmin ? (
-            <form
-              action={async (formData) => {
-                await onShare(formData);
-                onClose();
-              }}
+          <form
+            action={async (formData) => {
+              await onShare(formData);
+              onClose();
+            }}
+          >
+            <input type="hidden" name="fileId" value={file.id ?? ""} />
+            <input type="hidden" name="expiryHours" value={expiryHours} />
+            <button
+              type="submit"
+              disabled={!canManage || !file.id}
+              className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm font-semibold text-zinc-100 transition duration-200 active:scale-[0.98] disabled:opacity-60"
             >
-              <input type="hidden" name="fileId" value={file.id ?? ""} />
-              <button
-                type="submit"
-                disabled={!file.id}
-                className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm font-semibold text-zinc-100 transition duration-200 active:scale-[0.98] disabled:opacity-60"
-              >
-                <Share2 className="h-4 w-4" />
-                Share
-              </button>
-            </form>
-          ) : null}
+              <Share2 className="h-4 w-4" />
+              Share
+            </button>
+          </form>
           <form action={deleteFile.bind(null, file.relativePath)}>
             <button
               type="submit"
+              disabled={!canManage}
               onClick={onClose}
-              className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md border border-red-700/80 bg-red-950/20 px-3 py-2 text-sm font-semibold text-red-300 transition duration-200 active:scale-[0.98]"
+              className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md border border-red-700/80 bg-red-950/20 px-3 py-2 text-sm font-semibold text-red-300 transition duration-200 active:scale-[0.98] disabled:opacity-60"
             >
               <Trash2 className="h-4 w-4" />
               Delete
@@ -411,6 +487,7 @@ function MobileActionSheet({
 }
 
 function PreviewModal({ file, onClose }: { file: FileExplorerEntry; onClose: () => void }) {
+  const displayName = resolveDisplayFileName({ originalName: file.name });
   const previewKind = getPreviewKind(file.fileType);
   const previewUrl = buildPreviewUrl(file.relativePath);
   const [textContent, setTextContent] = useState<string | null>(previewKind === "text" ? null : "");
@@ -510,12 +587,12 @@ function PreviewModal({ file, onClose }: { file: FileExplorerEntry; onClose: () 
         className="flex h-[90vh] w-full max-w-4xl flex-col rounded-2xl border border-zinc-700 bg-zinc-950 p-4 text-zinc-100 sm:p-6"
         role="dialog"
         aria-modal="true"
-        aria-label={`Preview ${file.name}`}
+        aria-label={`Preview ${displayName}`}
         onClick={(event) => event.stopPropagation()}
       >
         <div className="mb-4 flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h3 className="truncate text-lg font-semibold">{file.name}</h3>
+            <h3 className="truncate text-lg font-semibold" title={displayName}>{displayName}</h3>
             <p className="text-xs text-zinc-400">{file.fileType.toUpperCase()} • {formatBytes(file.size)}</p>
           </div>
           <button type="button" onClick={onClose} className="rounded-md p-1 text-zinc-400 hover:text-zinc-200">
@@ -528,7 +605,7 @@ function PreviewModal({ file, onClose }: { file: FileExplorerEntry; onClose: () 
             <div className="flex h-full items-center justify-center overflow-auto">
               <Image
                 src={previewUrl}
-                alt={file.name}
+                alt={displayName}
                 width={1600}
                 height={1000}
                 unoptimized
@@ -548,7 +625,7 @@ function PreviewModal({ file, onClose }: { file: FileExplorerEntry; onClose: () 
               {pdfError ? <p className="p-3 text-sm text-red-400">{pdfError}</p> : null}
               {!loadingPdf && !pdfError && pdfObjectUrl ? (
                 <iframe
-                  title={`Preview ${file.name}`}
+                  title={`Preview ${displayName}`}
                   src={pdfObjectUrl}
                   className="h-full w-full rounded border border-zinc-800"
                 />
@@ -612,25 +689,28 @@ export function FileExplorer({ files, isAdmin }: FileExplorerProps) {
   const [sortBy, setSortBy] = useState<SortValue>("date_desc");
   const [dragActive, setDragActive] = useState(false);
   const [dropNotice, setDropNotice] = useState<string | null>(null);
+  const [urlInput, setUrlInput] = useState("");
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
   const [queueItems, setQueueItems] = useState<UploadQueueItem[]>([]);
   const [selected, setSelected] = useState<Record<string, boolean>>({});
   const [showShareModal, setShowShareModal] = useState(false);
+  const [shareExpiryHours, setShareExpiryHours] = useState(24);
   const [previewFile, setPreviewFile] = useState<FileExplorerEntry | null>(null);
   const [mobileActionFile, setMobileActionFile] = useState<FileExplorerEntry | null>(null);
   const uploadFormRef = useRef<HTMLFormElement>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const globalDragDepthRef = useRef(0);
-  const queuedFilesRef = useRef<Array<{ id: string; file: File }>>([]);
+  const queuedFilesRef = useRef<Array<{ id: string; kind: "local"; file: File } | { id: string; kind: "url"; url: string }>>([]);
   const uploadLoopActiveRef = useRef(false);
 
   const hasFilePayload = useCallback((event: DragEvent) => event.dataTransfer?.types?.includes("Files") ?? false, []);
 
-  const runUploadForItem = useCallback(async (itemId: string, file: File) => {
+  const runLocalUploadForItem = useCallback(async (itemId: string, file: File) => {
     await new Promise<void>((resolve, reject) => {
       const formData = new FormData();
       formData.set("file", file);
+      formData.set("originalName", file.name);
 
       const request = new XMLHttpRequest();
       request.open("POST", "/api/files/upload");
@@ -670,6 +750,40 @@ export function FileExplorer({ files, isAdmin }: FileExplorerProps) {
     });
   }, []);
 
+  const runUrlUploadForItem = useCallback(async (itemId: string, url: string) => {
+    let progress = 8;
+    const progressTimer = window.setInterval(() => {
+      progress = Math.min(90, progress + 6);
+      setQueueItems((prev) =>
+        prev.map((entry) =>
+          entry.id === itemId
+            ? {
+                ...entry,
+                progress,
+              }
+            : entry,
+        ),
+      );
+    }, 350);
+
+    try {
+      const response = await fetch("/api/files/upload-from-url", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ url }),
+      });
+
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(body?.error ?? "URL upload failed. Please try again.");
+      }
+    } finally {
+      window.clearInterval(progressTimer);
+    }
+  }, []);
+
   const processUploadQueue = useCallback(async () => {
     if (uploadLoopActiveRef.current) {
       return;
@@ -697,7 +811,11 @@ export function FileExplorer({ files, isAdmin }: FileExplorerProps) {
       );
 
       try {
-        await runUploadForItem(next.id, next.file);
+        if (next.kind === "local") {
+          await runLocalUploadForItem(next.id, next.file);
+        } else {
+          await runUrlUploadForItem(next.id, next.url);
+        }
         uploadedCount += 1;
         setQueueItems((prev) =>
           prev.map((entry) =>
@@ -736,7 +854,7 @@ export function FileExplorer({ files, isAdmin }: FileExplorerProps) {
     }
 
     setUploadSuccess(null);
-  }, [router, runUploadForItem]);
+  }, [router, runLocalUploadForItem, runUrlUploadForItem]);
 
   const enqueueFilesForUpload = useCallback((fileList: FileList | null) => {
     if (!fileList || fileList.length === 0 || !uploadInputRef.current) {
@@ -761,8 +879,9 @@ export function FileExplorer({ files, isAdmin }: FileExplorerProps) {
     }
 
     uploadInputRef.current.files = dt.files;
-    const items: Array<{ id: string; file: File }> = selectedFiles.map((file) => ({
+    const items: Array<{ id: string; kind: "local"; file: File }> = selectedFiles.map((file) => ({
       id: `${Date.now()}-${crypto.randomUUID()}`,
+      kind: "local",
       file,
     }));
 
@@ -773,6 +892,7 @@ export function FileExplorer({ files, isAdmin }: FileExplorerProps) {
         id: item.id,
         fileName: item.file.name,
         fileSize: item.file.size,
+        source: "file" as const,
         progress: 0,
         status: "queued" as const,
         error: null,
@@ -782,6 +902,53 @@ export function FileExplorer({ files, isAdmin }: FileExplorerProps) {
 
     void processUploadQueue().catch(() => {
       setUploadError("Upload queue failed unexpectedly. Please retry.");
+    });
+  }, [processUploadQueue]);
+
+  const enqueueUrlForUpload = useCallback((rawUrl: string) => {
+    const trimmed = rawUrl.trim();
+    if (!trimmed) {
+      setUploadError("Please enter a file URL.");
+      return;
+    }
+
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(trimmed);
+    } catch {
+      setUploadError("Please enter a valid URL.");
+      return;
+    }
+
+    if (!(parsedUrl.protocol === "http:" || parsedUrl.protocol === "https:")) {
+      setUploadError("Only http/https URLs are supported.");
+      return;
+    }
+
+    const inferredName = parsedUrl.pathname.split("/").filter(Boolean).pop() || parsedUrl.hostname;
+    const itemId = `${Date.now()}-${crypto.randomUUID()}`;
+    queuedFilesRef.current.push({ id: itemId, kind: "url", url: trimmed });
+    setQueueItems((prev) => [
+      ...prev,
+      {
+        id: itemId,
+        fileName: inferredName,
+        fileSize: 0,
+        source: "url",
+        sourceUrl: trimmed,
+        progress: 0,
+        status: "queued",
+        error: null,
+      },
+    ]);
+
+    setUploadError(null);
+    setUploadSuccess(null);
+    setDropNotice(null);
+    setUrlInput("");
+
+    void processUploadQueue().catch(() => {
+      setUploadError("URL upload queue failed unexpectedly. Please retry.");
     });
   }, [processUploadQueue]);
 
@@ -882,16 +1049,26 @@ export function FileExplorer({ files, isAdmin }: FileExplorerProps) {
         {dragActive ? "File drop zone active" : "File drop zone inactive"}
       </p>
 
-      {showShareModal && shareState.url && shareState.expiresAt ? (
-        <ShareModal url={shareState.url} expiresAt={shareState.expiresAt} onClose={() => setShowShareModal(false)} />
+      {showShareModal && shareState.url && shareState.expiresAt && shareState.shareId ? (
+        <ShareModal
+          url={shareState.url}
+          expiresAt={shareState.expiresAt}
+          shareId={shareState.shareId}
+          onClose={() => setShowShareModal(false)}
+          onRevoked={() => {
+            setShowShareModal(false);
+            router.refresh();
+          }}
+        />
       ) : null}
 
       {previewFile ? <PreviewModal file={previewFile} onClose={() => setPreviewFile(null)} /> : null}
       {mobileActionFile ? (
         <MobileActionSheet
           file={mobileActionFile}
-          isAdmin={isAdmin}
           onClose={() => setMobileActionFile(null)}
+          expiryHours={shareExpiryHours}
+          canManage={mobileActionFile.isOwnedByCurrentUser}
           onShare={async (formData) => {
             await shareAction(formData);
             setShowShareModal(true);
@@ -941,14 +1118,63 @@ export function FileExplorer({ files, isAdmin }: FileExplorerProps) {
           />
         </form>
 
+        <form
+          className="mt-3 flex flex-col gap-2 sm:flex-row"
+          onSubmit={(event) => {
+            event.preventDefault();
+            enqueueUrlForUpload(urlInput);
+          }}
+        >
+          <label className="sr-only" htmlFor="upload-url-input">File URL</label>
+          <input
+            id="upload-url-input"
+            type="url"
+            value={urlInput}
+            onChange={(event) => setUrlInput(event.target.value)}
+            placeholder="https://example.com/file.pdf"
+            className="w-full rounded-md border border-zinc-300/90 bg-zinc-50/95 px-3 py-2 text-sm outline-none transition duration-200 focus:border-green-500 dark:border-zinc-700 dark:bg-zinc-900"
+          />
+          <button
+            type="submit"
+            disabled={queueItems.some((item) => item.status === "uploading")}
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-zinc-300/90 bg-white/80 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-700 transition duration-200 hover:scale-[1.01] hover:border-green-500 hover:text-green-600 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900/70 dark:text-zinc-200"
+          >
+            <UrlIcon className="h-3.5 w-3.5" />
+            Upload From URL
+          </button>
+        </form>
+
+        <div className="mt-3 flex items-center gap-2">
+          <label htmlFor="share-expiry-hours" className="text-xs text-zinc-500 dark:text-zinc-400">
+            Share link expiry
+          </label>
+          <select
+            id="share-expiry-hours"
+            value={shareExpiryHours}
+            onChange={(event) => setShareExpiryHours(Number(event.target.value))}
+            className="rounded-md border border-zinc-300/90 bg-zinc-50/95 px-2 py-1 text-xs outline-none transition duration-200 focus:border-green-500 dark:border-zinc-700 dark:bg-zinc-900"
+          >
+            <option value={1}>1 hour</option>
+            <option value={24}>24 hours</option>
+            <option value={168}>7 days</option>
+          </select>
+        </div>
+
         {queueItems.length > 0 ? (
           <div className="mt-4 space-y-2">
             {queueItems.map((item) => (
               <div key={item.id} className="rounded-lg border border-zinc-200/90 bg-zinc-50/90 p-3 transition duration-200 dark:border-zinc-800/80 dark:bg-zinc-900/60">
                 <div className="mb-2 flex items-center justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-zinc-800 dark:text-zinc-200">{item.fileName}</p>
-                    <p className="text-xs text-zinc-500">{formatBytes(item.fileSize)}</p>
+                    <p
+                      className="truncate text-sm font-medium text-zinc-800 dark:text-zinc-200"
+                      title={resolveDisplayFileName({ originalName: item.fileName })}
+                    >
+                      {resolveDisplayFileName({ originalName: item.fileName })}
+                    </p>
+                    <p className="text-xs text-zinc-500">
+                      {item.source === "url" ? "Remote URL source" : formatBytes(item.fileSize)}
+                    </p>
                   </div>
                   <UploadStatusBadge status={item.status} />
                 </div>
@@ -973,6 +1199,7 @@ export function FileExplorer({ files, isAdmin }: FileExplorerProps) {
         ) : null}
 
         {dropNotice ? <p className="mt-3 text-sm text-amber-400">{dropNotice}</p> : null}
+        {shareState.error ? <p className="mt-3 text-sm text-red-400">{shareState.error}</p> : null}
         {uploadError ? <p className="mt-3 text-sm text-red-400">{uploadError}</p> : null}
         {uploadSuccess ? <p className="mt-3 text-sm text-green-400">{uploadSuccess}</p> : null}
       </section>
@@ -1016,114 +1243,137 @@ export function FileExplorer({ files, isAdmin }: FileExplorerProps) {
         ) : (
           <>
             <div className="grid grid-cols-1 gap-3.5 md:hidden">
-              {filteredFiles.map((file) => (
-                <article
-                  key={file.relativePath}
-                  className="group rounded-xl border border-zinc-200/90 bg-white/95 p-4 shadow-sm transition-all duration-200 hover:border-zinc-300 hover:shadow-md dark:border-zinc-800/80 dark:bg-zinc-900/90 dark:shadow-black/15 dark:hover:border-zinc-700"
-                >
-                  <div className="mb-3 flex items-start justify-between gap-3">
-                    <button
-                      type="button"
-                      onClick={() => setPreviewFile(file)}
-                      className="flex min-w-0 items-center gap-3 text-left"
-                    >
-                      <FileVisual file={file} large />
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100">{file.name}</p>
-                        <p className="text-xs uppercase text-zinc-500">{file.fileType}</p>
-                      </div>
-                    </button>
-                    <input
-                      type="checkbox"
-                      checked={Boolean(selected[file.relativePath])}
-                      onChange={(event) =>
-                        setSelected((prev) => ({
-                          ...prev,
-                          [file.relativePath]: event.target.checked,
-                        }))
-                      }
-                    />
-                  </div>
+              {filteredFiles.map((file) => {
+                const displayName = resolveDisplayFileName({ originalName: file.name });
+                const canManage = file.isOwnedByCurrentUser;
 
-                  <div className="space-y-1 text-xs text-zinc-500">
-                    {isAdmin ? <p>Folder: {file.ownerFolder}</p> : null}
-                    <p>Size: {formatBytes(file.size)}</p>
-                    <p>Date: {new Date(file.createdAt).toLocaleString()}</p>
-                  </div>
+                return (
+                  <article
+                    key={file.relativePath}
+                    className="group rounded-xl border border-zinc-200/90 bg-white/95 p-4 shadow-sm transition-all duration-200 hover:border-zinc-300 hover:shadow-md dark:border-zinc-800/80 dark:bg-zinc-900/90 dark:shadow-black/15 dark:hover:border-zinc-700"
+                  >
+                    <div className="mb-3 flex items-start justify-between gap-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!canManage) {
+                            toast.error("Admin view only: no access to this file.");
+                            return;
+                          }
+                          setPreviewFile(file);
+                        }}
+                        className="flex min-w-0 items-center gap-3 text-left"
+                      >
+                        <FileVisual file={file} large />
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold text-zinc-900 dark:text-zinc-100" title={displayName}>{displayName}</p>
+                          <p className="text-xs uppercase text-zinc-500">{file.fileType}</p>
+                        </div>
+                      </button>
+                      <input
+                        type="checkbox"
+                        disabled={!canManage}
+                        checked={Boolean(selected[file.relativePath])}
+                        onChange={(event) =>
+                          setSelected((prev) => ({
+                            ...prev,
+                            [file.relativePath]: event.target.checked,
+                          }))
+                        }
+                      />
+                    </div>
 
-                  <div className="mt-4 flex items-center justify-between gap-2.5 transition-all duration-200">
-                    <button
-                      type="button"
-                      onClick={() => setMobileActionFile(file)}
-                      className="inline-flex min-h-10 items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-200 transition duration-200 active:scale-[0.98]"
-                      aria-label={`Open actions for ${file.name}`}
-                      aria-haspopup="dialog"
-                    >
-                      <MoreVertical className="h-4 w-4" />
-                      Actions
-                    </button>
-                    {file.isFavorite ? <Star className="h-4 w-4 fill-amber-400 text-amber-400" /> : null}
-                  </div>
-                </article>
-              ))}
+                    <div className="space-y-1 text-xs text-zinc-500">
+                      {isAdmin ? <p>Folder: {file.ownerFolder}</p> : null}
+                      <p>Size: {formatBytes(file.size)}</p>
+                      <p>Date: {new Date(file.createdAt).toLocaleString()}</p>
+                    </div>
+
+                    <div className="mt-4 flex items-center justify-between gap-2.5 transition-all duration-200">
+                      <button
+                        type="button"
+                        onClick={() => setMobileActionFile(file)}
+                        className="inline-flex min-h-10 items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-200 transition duration-200 active:scale-[0.98]"
+                        aria-label={`Open actions for ${displayName}`}
+                        aria-haspopup="dialog"
+                      >
+                        <MoreVertical className="h-4 w-4" />
+                        Actions
+                      </button>
+                      {file.isFavorite ? <Star className="h-4 w-4 fill-amber-400 text-amber-400" /> : null}
+                    </div>
+                  </article>
+                );
+              })}
             </div>
 
             <div className="hidden overflow-x-auto md:block">
-              <table className="w-full min-w-[980px] border-collapse text-left text-sm">
+              <table className="w-full table-fixed border-collapse text-left text-sm">
                 <thead>
                   <tr className="border-b border-zinc-200/90 text-zinc-600 dark:border-zinc-800/80 dark:text-zinc-400">
-                    <th className="pb-3 pr-2">Sel</th>
-                    <th className="pb-3">Name</th>
-                    {isAdmin ? <th className="pb-3">Folder</th> : null}
-                    <th className="pb-3">Type</th>
-                    <th className="pb-3">Size</th>
-                    <th className="pb-3">Date</th>
-                    <th className="pb-3 text-right">Actions</th>
+                    <th className="w-10 pb-3 pr-2">Sel</th>
+                    <th className="pb-3 pr-6">Name</th>
+                    {isAdmin ? <th className="w-36 pb-3">Folder</th> : null}
+                    <th className="w-24 pb-3">Type</th>
+                    <th className="w-20 pb-3">Size</th>
+                    <th className="w-28 pb-3">Date</th>
+                    <th className="w-[300px] pb-3 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredFiles.map((file) => (
-                    <tr
-                      key={file.relativePath}
-                      tabIndex={0}
-                      className="group border-b border-zinc-100/90 transition-colors duration-200 hover:bg-zinc-50/75 focus-within:bg-zinc-50/75 focus:outline-none dark:border-zinc-900/70 dark:hover:bg-zinc-900/45 dark:focus-within:bg-zinc-900/45"
-                    >
-                      <td className="py-3 pr-2">
-                        <input
-                          type="checkbox"
-                          checked={Boolean(selected[file.relativePath])}
-                          onChange={(event) =>
-                            setSelected((prev) => ({
-                              ...prev,
-                              [file.relativePath]: event.target.checked,
-                            }))
-                          }
-                        />
-                      </td>
-                      <td className="py-3 pr-4">
-                        <button
-                          type="button"
-                          onClick={() => setPreviewFile(file)}
-                          className="inline-flex items-center gap-2 text-left hover:text-green-500"
-                        >
-                          <FileVisual file={file} />
-                          <span className="max-w-[300px] truncate">{file.name}</span>
-                          {file.isFavorite ? <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" /> : null}
-                        </button>
-                      </td>
-                      {isAdmin ? <td className="py-3 pr-4 text-zinc-500">{file.ownerFolder}</td> : null}
-                      <td className="py-3 pr-4 uppercase text-zinc-500">{file.fileType}</td>
-                      <td className="py-3 pr-4 text-zinc-500">{formatBytes(file.size)}</td>
-                      <td className="py-3 pr-4 text-zinc-500">{new Date(file.createdAt).toLocaleString()}</td>
-                      <td className="py-3 text-right">
-                        <div className="flex items-center justify-end gap-2 md:opacity-0 md:translate-y-0.5 md:scale-[0.98] md:transition-all md:duration-200 md:group-hover:opacity-100 md:group-hover:translate-y-0 md:group-hover:scale-100 md:group-focus-within:opacity-100 md:group-focus-within:translate-y-0 md:group-focus-within:scale-100">
-                          <form action={toggleFavoriteAction.bind(null, file.id ?? "")}>
-                            <FavoriteButton isFavorite={file.isFavorite} disabled={!file.id} />
-                          </form>
-                          <form action={downloadFile.bind(null, file.relativePath)}>
-                            <DownloadButton />
-                          </form>
-                          {isAdmin ? (
+                  {filteredFiles.map((file) => {
+                    const displayName = resolveDisplayFileName({ originalName: file.name });
+                    const canManage = file.isOwnedByCurrentUser;
+
+                    return (
+                      <tr
+                        key={file.relativePath}
+                        tabIndex={0}
+                        className="group border-b border-zinc-100/90 transition-colors duration-200 hover:bg-zinc-50/75 focus-within:bg-zinc-50/75 focus:outline-none dark:border-zinc-900/70 dark:hover:bg-zinc-900/45 dark:focus-within:bg-zinc-900/45"
+                      >
+                        <td className="py-3 pr-2">
+                          <input
+                            type="checkbox"
+                            disabled={!canManage}
+                            checked={Boolean(selected[file.relativePath])}
+                            onChange={(event) =>
+                              setSelected((prev) => ({
+                                ...prev,
+                                [file.relativePath]: event.target.checked,
+                              }))
+                            }
+                          />
+                        </td>
+                        <td className="py-3 pr-6">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!canManage) {
+                                toast.error("Admin view only: no access to this file.");
+                                return;
+                              }
+                              setPreviewFile(file);
+                            }}
+                            className="inline-flex min-w-0 items-center gap-2 text-left hover:text-green-500"
+                            title={displayName}
+                          >
+                            <FileVisual file={file} />
+                            <span className="max-w-[360px] truncate">{displayName}</span>
+                            {file.isFavorite ? <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" /> : null}
+                          </button>
+                        </td>
+                        {isAdmin ? <td className="truncate py-3 pr-4 text-zinc-500" title={file.ownerFolder}>{file.ownerFolder}</td> : null}
+                        <td className="truncate py-3 pr-4 uppercase text-zinc-500" title={file.fileType}>{file.fileType}</td>
+                        <td className="py-3 pr-4 text-zinc-500">{formatBytes(file.size)}</td>
+                        <td className="py-3 pr-4 text-zinc-500">{new Date(file.createdAt).toLocaleString()}</td>
+                        <td className="py-3 text-right">
+                          <div className="flex items-center justify-end gap-2 md:opacity-0 md:translate-y-0.5 md:scale-[0.98] md:transition-all md:duration-200 md:group-hover:opacity-100 md:group-hover:translate-y-0 md:group-hover:scale-100 md:group-focus-within:opacity-100 md:group-focus-within:translate-y-0 md:group-focus-within:scale-100">
+                            <form action={toggleFavoriteAction.bind(null, file.id ?? "")}>
+                              <FavoriteButton isFavorite={file.isFavorite} disabled={!file.id || !canManage} />
+                            </form>
+                            <form action={downloadFile.bind(null, file.relativePath)}>
+                              <DownloadButton disabled={!canManage} />
+                            </form>
                             <form
                               action={async (formData) => {
                                 await shareAction(formData);
@@ -1131,16 +1381,17 @@ export function FileExplorer({ files, isAdmin }: FileExplorerProps) {
                               }}
                             >
                               <input type="hidden" name="fileId" value={file.id ?? ""} />
-                              <ShareButton disabled={!file.id} />
+                              <input type="hidden" name="expiryHours" value={shareExpiryHours} />
+                              <ShareButton disabled={!file.id || !canManage} />
                             </form>
-                          ) : null}
-                          <form action={deleteFile.bind(null, file.relativePath)}>
-                            <DeleteButton />
-                          </form>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                            <form action={deleteFile.bind(null, file.relativePath)}>
+                              <DeleteButton disabled={!canManage} />
+                            </form>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

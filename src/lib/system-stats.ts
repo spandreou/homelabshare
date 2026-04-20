@@ -19,10 +19,28 @@ export type SystemStats = {
   collectedAt: string;
 };
 
+function emptyStats(): SystemStats {
+  return {
+    cpuUsagePercent: 0,
+    cpuTempC: null,
+    ramTotalGb: 0,
+    ramUsedGb: 0,
+    ramFreeGb: 0,
+    ramUsedPercent: 0,
+    diskTotalGb: 0,
+    diskFreeGb: 0,
+    diskUsedPercent: 0,
+    uptimeSeconds: os.uptime(),
+    registeredUsers: 0,
+    activeInviteCodes: 0,
+    collectedAt: new Date().toISOString(),
+  };
+}
+
 export async function collectSystemStats(): Promise<SystemStats> {
-  const [load, temp, memory, fsSizes, userCount, activeCodes] = await Promise.all([
+  const [loadResult, tempResult, memoryResult, fsSizesResult, userCountResult, activeCodesResult] = await Promise.allSettled([
     si.currentLoad(),
-    si.cpuTemperature().catch(() => ({ main: null })),
+    si.cpuTemperature(),
     si.mem(),
     si.fsSize(),
     db.user.count(),
@@ -33,6 +51,13 @@ export async function collectSystemStats(): Promise<SystemStats> {
       },
     }),
   ]);
+
+  const load = loadResult.status === "fulfilled" ? loadResult.value : { currentLoad: 0 };
+  const temp = tempResult.status === "fulfilled" ? tempResult.value : { main: null as number | null };
+  const memory = memoryResult.status === "fulfilled" ? memoryResult.value : { total: 0, used: 0, available: 0 };
+  const fsSizes = fsSizesResult.status === "fulfilled" ? fsSizesResult.value : [];
+  const userCount = userCountResult.status === "fulfilled" ? userCountResult.value : 0;
+  const activeCodes = activeCodesResult.status === "fulfilled" ? activeCodesResult.value : 0;
 
   const targetPath = "/home/spandreou";
   const normalizedTarget = path.resolve(targetPath);
@@ -54,9 +79,14 @@ export async function collectSystemStats(): Promise<SystemStats> {
   const ramFree = memory.available;
   const ramUsedPercent = ramTotal > 0 ? (ramUsed / ramTotal) * 100 : 0;
 
-  return {
-    cpuUsagePercent: Number(load.currentLoad.toFixed(1)),
-    cpuTempC: typeof temp.main === "number" ? Number(temp.main.toFixed(1)) : null,
+  const cpuUsagePercentRaw =
+    typeof load.currentLoad === "number" && Number.isFinite(load.currentLoad) ? load.currentLoad : 0;
+  const cpuTempRaw =
+    typeof temp.main === "number" && Number.isFinite(temp.main) ? temp.main : null;
+
+  const stats = {
+    cpuUsagePercent: Number(cpuUsagePercentRaw.toFixed(1)),
+    cpuTempC: cpuTempRaw === null ? null : Number(cpuTempRaw.toFixed(1)),
     ramTotalGb: Number((ramTotal / 1024 ** 3).toFixed(2)),
     ramUsedGb: Number((ramUsed / 1024 ** 3).toFixed(2)),
     ramFreeGb: Number((ramFree / 1024 ** 3).toFixed(2)),
@@ -69,4 +99,10 @@ export async function collectSystemStats(): Promise<SystemStats> {
     activeInviteCodes: activeCodes,
     collectedAt: new Date().toISOString(),
   };
+
+  if (Object.values(stats).some((value) => typeof value === "number" && Number.isNaN(value))) {
+    return emptyStats();
+  }
+
+  return stats;
 }

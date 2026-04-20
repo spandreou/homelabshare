@@ -2,9 +2,14 @@ import { stat } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
 import archiver from "archiver";
+import { AuditAction } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "../../../../lib/auth";
+import { db } from "../../../../lib/db";
 import { UPLOAD_ROOT } from "../../../../lib/storage";
+
+const MAX_ZIP_SELECTION = 200;
+const MAX_ZIP_TOTAL_BYTES = 1024 * 1024 * 1024;
 
 function normalizeRelativePath(input: string) {
   return path.normalize(input).replace(/^(\.\.(\/|\\|$))+/, "").replace(/^\/+/, "");
@@ -38,16 +43,28 @@ export async function GET(request: Request) {
   }
 
   const normalizedRoot = path.resolve(UPLOAD_ROOT);
+  const accessibleDbPaths = new Set(
+    (
+      await db.file.findMany({
+        where: { userId: user.id },
+        select: {
+          path: true,
+        },
+      })
+    )
+      .map((row) => path.resolve(row.path))
+      .filter((candidate) => isPathInsideRoot(candidate, normalizedRoot)),
+  );
   const allowed: Array<{ absolutePath: string; name: string }> = [];
+  let totalBytes = 0;
 
   for (const rawPath of rawPaths) {
-    const relativePath = normalizeRelativePath(rawPath);
-    if (!relativePath) {
-      continue;
+    if (allowed.length >= MAX_ZIP_SELECTION) {
+      break;
     }
 
-    const ownerFolder = relativePath.split("/")[0];
-    if (user.role !== "ADMIN" && ownerFolder !== user.id) {
+    const relativePath = normalizeRelativePath(rawPath);
+    if (!relativePath) {
       continue;
     }
 
@@ -55,9 +72,15 @@ export async function GET(request: Request) {
     if (!isPathInsideRoot(absolutePath, normalizedRoot)) {
       continue;
     }
+    if (!accessibleDbPaths.has(absolutePath)) {
+      continue;
+    }
 
     const metadata = await stat(absolutePath).catch(() => null);
     if (!metadata || !metadata.isFile()) {
+      continue;
+    }
+    if (totalBytes + metadata.size > MAX_ZIP_TOTAL_BYTES) {
       continue;
     }
 
@@ -65,6 +88,7 @@ export async function GET(request: Request) {
       absolutePath,
       name: path.basename(relativePath),
     });
+    totalBytes += metadata.size;
   }
 
   if (allowed.length === 0) {
@@ -80,6 +104,13 @@ export async function GET(request: Request) {
   queueMicrotask(() => {
     void archive.finalize();
   });
+  await db.auditLog.create({
+    data: {
+      userId: user.id,
+      action: AuditAction.DOWNLOAD,
+      fileName: `[ZIP] ${allowed.length} files`,
+    },
+  }).catch(() => undefined);
 
   return new Response(webStream, {
     headers: {

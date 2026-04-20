@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { getSessionSecret } from "./src/lib/session-secret";
 
 type SessionPayload = {
   exp: number;
@@ -38,7 +39,12 @@ function base64UrlEncode(bytes: Uint8Array) {
 }
 
 async function verifySignature(payloadBase64: string, signature: string) {
-  const secret = process.env.SESSION_SECRET ?? "homelabshare-dev-secret-change-me";
+  let secret: string;
+  try {
+    secret = getSessionSecret();
+  } catch {
+    return false;
+  }
 
   const key = await crypto.subtle.importKey(
     "raw",
@@ -117,7 +123,11 @@ export async function middleware(request: NextRequest) {
     return loginRedirect(request);
   }
 
-  return NextResponse.next();
+  const response = NextResponse.next();
+  response.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  response.headers.set("Pragma", "no-cache");
+  response.headers.set("Expires", "0");
+  return response;
 }
 
 export const config = {

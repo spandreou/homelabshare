@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { Download, File as FileIcon, FileSpreadsheet, FileText, Search } from "lucide-react";
 import { deleteFileAction, downloadFileAction } from "../actions";
+import { resolveDisplayFileName } from "../../lib/file-name-display";
 import { DeleteFileForm } from "./delete-file-form";
 
 type DashboardFile = {
@@ -61,13 +62,17 @@ export function FilesList({ files }: { files: DashboardFile[] }) {
 
   const filteredFiles = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
+    const withDisplayName = files.map((file) => ({
+      ...file,
+      displayName: resolveDisplayFileName({ originalName: file.name }),
+    }));
 
-    const matching = files.filter((file) => {
+    const matching = withDisplayName.filter((file) => {
       if (!normalizedQuery) {
         return true;
       }
 
-      return file.name.toLowerCase().includes(normalizedQuery);
+      return file.displayName.toLowerCase().includes(normalizedQuery);
     });
 
     const sorted = [...matching].sort((a, b) => {
@@ -125,7 +130,7 @@ export function FilesList({ files }: { files: DashboardFile[] }) {
         <>
           <div className="space-y-3 md:hidden">
             {filteredFiles.map((file) => {
-              const { Icon, colorClass } = getFileTypeMeta(file.name);
+              const { Icon, colorClass } = getFileTypeMeta(file.displayName);
 
               return (
                 <article
@@ -134,7 +139,7 @@ export function FilesList({ files }: { files: DashboardFile[] }) {
                 >
                   <div className="mb-2 inline-flex items-center gap-2">
                     <Icon className={`h-4 w-4 ${colorClass}`} />
-                    <p className="font-medium text-zinc-900 dark:text-zinc-100">{file.name}</p>
+                    <p className="font-medium text-zinc-900 dark:text-zinc-100" title={file.displayName}>{file.displayName}</p>
                   </div>
                   <p className="text-xs text-zinc-600 dark:text-zinc-400">Size: {formatBytes(file.size)}</p>
                   <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
@@ -169,14 +174,14 @@ export function FilesList({ files }: { files: DashboardFile[] }) {
               </thead>
               <tbody>
                 {filteredFiles.map((file) => {
-                  const { Icon, colorClass } = getFileTypeMeta(file.name);
+                  const { Icon, colorClass } = getFileTypeMeta(file.displayName);
 
                   return (
                     <tr key={file.id} className="border-b border-zinc-200/80 transition-colors duration-200 hover:bg-zinc-50/70 dark:border-zinc-900/70 dark:hover:bg-zinc-900/35">
                       <td className="py-3 pr-4">
                         <span className="inline-flex items-center gap-2">
                           <Icon className={`h-4 w-4 ${colorClass}`} />
-                          <span>{file.name}</span>
+                          <span title={file.displayName}>{file.displayName}</span>
                         </span>
                       </td>
                       <td className="py-3 pr-4">{formatBytes(file.size)}</td>
