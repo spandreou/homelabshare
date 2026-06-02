@@ -6,6 +6,7 @@ import { useFormStatus } from "react-dom";
 import toast from "react-hot-toast";
 import { loginAction, registerAction } from "../app/actions";
 import { initialAuthState } from "../app/action-types";
+import DotField from "./DotField";
 import { ThemeSwitcher } from "./ThemeSwitcher";
 
 function SubmitButton({ idleLabel, pendingLabel }: { idleLabel: string; pendingLabel: string }) {
@@ -43,8 +44,25 @@ export default function LandingClient() {
   }, [registerState.error]);
 
   return (
-    <main className="min-h-screen bg-zinc-100 px-6 py-12 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
-      <div className="mx-auto flex min-h-[80vh] max-w-6xl flex-col justify-center">
+    <main className="relative isolate min-h-screen overflow-hidden bg-zinc-100 px-6 py-12 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-0">
+        <DotField
+          dotRadius={3}
+          dotSpacing={15}
+          bulgeStrength={58}
+          glowRadius={190}
+          cursorRadius={460}
+          cursorForce={0.1}
+          gradientFrom="rgba(34, 197, 94, 0.82)"
+          gradientTo="rgba(20, 184, 166, 0.58)"
+          glowColor="rgba(34, 197, 94, 0.28)"
+        />
+      </div>
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 z-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.38),rgba(244,244,245,0.66)_38%,rgba(244,244,245,0.86)_72%)] dark:bg-[radial-gradient(circle_at_top,rgba(24,24,27,0.06),rgba(9,9,11,0.32)_42%,rgba(9,9,11,0.62)_78%)]"
+      />
+      <div className="relative z-10 mx-auto flex min-h-[80vh] max-w-6xl flex-col justify-center">
         <header className="mb-10 text-center">
           <div className="mb-4 flex justify-end">
             <ThemeSwitcher />
