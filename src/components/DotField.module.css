@@ -3,3 +3,12 @@
   width: 100%;
   height: 100%;
 }
+
+.container::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(circle, rgba(34, 197, 94, 0.58) 1.2px, transparent 1.9px);
+  background-size: 18px 18px;
+  opacity: 0.82;
+}
