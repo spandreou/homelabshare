@@ -1,7 +1,7 @@
 "use server";
 
 import { randomUUID } from "node:crypto";
-import { mkdir, readdir, stat, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readdir, rmdir, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { AuditAction, InviteEmailStatus, InviteRequestStatus, UserRole } from "@prisma/client";
 import { revalidatePath } from "next/cache";
@@ -188,6 +188,26 @@ async function listFilesRecursively(directory: string): Promise<string[]> {
   }
 
   return files;
+}
+
+async function removeEmptyDirectories(directory: string, rootDirectory: string) {
+  const entries = await readdir(directory, { withFileTypes: true }).catch(() => []);
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+
+    await removeEmptyDirectories(path.join(directory, entry.name), rootDirectory);
+  }
+
+  const normalizedDirectory = path.resolve(directory);
+  const normalizedRoot = path.resolve(rootDirectory);
+  if (normalizedDirectory === normalizedRoot || !isPathInsideRoot(normalizedDirectory, normalizedRoot)) {
+    return;
+  }
+
+  await rmdir(normalizedDirectory).catch(() => undefined);
 }
 
 export type ExplorerFileEntry = {
@@ -1463,7 +1483,10 @@ export async function cleanupOrphanedFilesAction() {
   const [dbFiles, diskFiles] = await Promise.all([
     db.file.findMany({
       select: {
+        id: true,
         path: true,
+        size: true,
+        userId: true,
       },
     }),
     listFilesRecursively(normalizedRoot),
@@ -1474,8 +1497,14 @@ export async function cleanupOrphanedFilesAction() {
       .map((file) => path.resolve(file.path))
       .filter((candidate) => candidate === normalizedRoot || candidate.startsWith(`${normalizedRoot}${path.sep}`)),
   );
+  const diskFileSet = new Set(
+    diskFiles
+      .map((filePath) => path.resolve(filePath))
+      .filter((candidate) => candidate === normalizedRoot || candidate.startsWith(`${normalizedRoot}${path.sep}`)),
+  );
 
   let removedCount = 0;
+  let missingRecordCount = 0;
 
   for (const absoluteDiskFile of diskFiles) {
     const normalizedDiskFile = path.resolve(absoluteDiskFile);
@@ -1495,17 +1524,43 @@ export async function cleanupOrphanedFilesAction() {
     removedCount += 1;
   }
 
+  const missingDbFiles = dbFiles
+    .map((file) => ({
+      ...file,
+      normalizedPath: path.resolve(file.path),
+    }))
+    .filter((file) => {
+      return (
+        (file.normalizedPath === normalizedRoot || file.normalizedPath.startsWith(`${normalizedRoot}${path.sep}`)) &&
+        !diskFileSet.has(file.normalizedPath)
+      );
+    });
+
+  if (missingDbFiles.length > 0) {
+    await db.$transaction(async (tx) => {
+      for (const file of missingDbFiles) {
+        await tx.file.delete({
+          where: { id: file.id },
+        });
+        await decrementStorageUsedSafely(tx, file.userId, file.size);
+        missingRecordCount += 1;
+      }
+    });
+  }
+
+  await removeEmptyDirectories(normalizedRoot, normalizedRoot);
+
   await db.auditLog.create({
     data: {
       userId: admin.id,
       action: AuditAction.DELETE,
-      fileName: `[ORPHAN-CLEANUP] removed=${removedCount}`,
+      fileName: `[ORPHAN-CLEANUP] removed=${removedCount} missingRecords=${missingRecordCount}`,
     },
   }).catch(() => undefined);
 
   revalidatePath("/admin");
   revalidatePath("/admin/stats");
-  redirect(`/admin?cleanup=${removedCount}`);
+  redirect(`/admin?cleanup=${removedCount + missingRecordCount}`);
 }
 
 export async function updateAutoCleanupPolicyAction(formData: FormData) {

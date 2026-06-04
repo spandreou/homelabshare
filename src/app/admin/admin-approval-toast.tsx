@@ -108,9 +108,9 @@ export function AdminApprovalToast({
     }
 
     if (cleanupCount === 0) {
-      toast("No orphaned files found.");
+      toast("No storage drift found.");
     } else {
-      toast.success(`Cleanup finished. Removed ${cleanupCount} orphaned file(s).`);
+      toast.success(`Cleanup finished. Reconciled ${cleanupCount} storage item(s).`);
     }
 
     const params = new URLSearchParams(searchParams.toString());
