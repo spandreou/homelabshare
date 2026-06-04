@@ -50,18 +50,18 @@ export default function LandingClient() {
           colors={["#A6C8FF", "#5227FF", "#FF9FFC"]}
           backgroundColor="#0A29FF"
           speed={0.5}
-          streakCount={2}
+          streakCount={3}
           streakWidth={1}
           streakLength={1}
-          glow={1}
-          density={0.6}
+          glow={0.8}
+          density={0.7}
           twinkle={1}
-          zoom={3}
-          backgroundGlow={0.5}
+          zoom={2.3}
+          backgroundGlow={0.3}
           opacity={1}
-          mouseInteraction
+          mouseInteraction={false}
           mouseStrength={0.5}
-          mouseRadius={1}
+          mouseRadius={0.65}
         />
       </div>
       <div
