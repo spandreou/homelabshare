@@ -1,12 +1,13 @@
+import { UserRole } from "@prisma/client";
 import { initialFileState } from "../action-types";
 import { logoutAction, uploadFileAction } from "../actions";
 import { requireUser } from "../../lib/auth";
-import { ThemeSwitcher } from "../../components/ThemeSwitcher";
+import { AuthenticatedPageShell } from "../../components/AuthenticatedPageShell";
 import { db } from "../../lib/db";
 import { resolveDisplayFileName } from "../../lib/file-name-display";
 import { FilesList } from "./files-list";
 import { UploadForm } from "./upload-form";
-import { HardDrive, LogOut, Upload, FolderOpen, FileText, FileSpreadsheet, FileArchive, File, Image as ImageIcon, Clock3, Star } from "lucide-react";
+import { BarChart3, HardDrive, LogOut, Upload, FolderOpen, FileText, FileSpreadsheet, FileArchive, File, Image as ImageIcon, Clock3, ShieldCheck, Star } from "lucide-react";
 import Link from "next/link";
 
 function formatBytes(value: bigint) {
@@ -150,15 +151,13 @@ export default async function DashboardPage() {
     .sort((a, b) => b.bytes - a.bytes);
 
   return (
-    <main className="min-h-screen bg-zinc-100/95 px-6 py-10 text-zinc-900 dark:bg-zinc-900 dark:text-zinc-100">
-      <div className="mx-auto max-w-6xl space-y-8">
+    <AuthenticatedPageShell>
         <header className="flex flex-col gap-4 rounded-2xl border border-zinc-200/90 bg-white/95 p-6 shadow-sm backdrop-blur-[2px] md:flex-row md:items-center md:justify-between dark:border-zinc-800/80 dark:bg-zinc-950/90 dark:shadow-black/20">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
             <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">Signed in as {user.email}</p>
           </div>
           <div className="flex items-center gap-2">
-            <ThemeSwitcher />
             <Link
               href="/dashboard/files"
               className="inline-flex items-center gap-2 rounded-md border border-zinc-300/90 bg-white/70 px-4 py-2 text-sm font-medium text-zinc-700 shadow-sm transition duration-200 hover:scale-[1.01] hover:border-green-600 hover:text-green-600 active:scale-[0.98] dark:border-zinc-700 dark:bg-zinc-900/70 dark:text-zinc-200 dark:hover:text-green-500"
@@ -177,6 +176,41 @@ export default async function DashboardPage() {
             </form>
           </div>
         </header>
+
+        {user.role === UserRole.ADMIN ? (
+          <section className="rounded-2xl border border-green-500/35 bg-zinc-950/90 p-5 shadow-sm shadow-black/20 backdrop-blur-[2px]">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-green-400">Admin Panel</p>
+                <h2 className="mt-1 text-xl font-semibold text-zinc-100">Admin navigation</h2>
+                <p className="mt-1 text-sm text-zinc-400">Jump directly into admin pages and file oversight from your dashboard.</p>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-3">
+                <Link
+                  href="/admin"
+                  className="inline-flex items-center justify-center gap-2 rounded-md border border-zinc-700 bg-zinc-900/70 px-4 py-2 text-sm font-medium text-zinc-200 shadow-sm transition duration-200 hover:scale-[1.01] hover:border-green-600 hover:text-green-500 active:scale-[0.98]"
+                >
+                  <ShieldCheck className="h-4 w-4" />
+                  Admin Home
+                </Link>
+                <Link
+                  href="/admin/stats"
+                  className="inline-flex items-center justify-center gap-2 rounded-md border border-zinc-700 bg-zinc-900/70 px-4 py-2 text-sm font-medium text-zinc-200 shadow-sm transition duration-200 hover:scale-[1.01] hover:border-green-600 hover:text-green-500 active:scale-[0.98]"
+                >
+                  <BarChart3 className="h-4 w-4" />
+                  Admin Stats
+                </Link>
+                <Link
+                  href="/dashboard/files"
+                  className="inline-flex items-center justify-center gap-2 rounded-md border border-zinc-700 bg-zinc-900/70 px-4 py-2 text-sm font-medium text-zinc-200 shadow-sm transition duration-200 hover:scale-[1.01] hover:border-green-600 hover:text-green-500 active:scale-[0.98]"
+                >
+                  <FolderOpen className="h-4 w-4" />
+                  File Explorer
+                </Link>
+              </div>
+            </div>
+          </section>
+        ) : null}
 
         <section className="rounded-2xl border border-zinc-200/90 bg-white/95 p-6 shadow-sm backdrop-blur-[2px] dark:border-zinc-800/80 dark:bg-zinc-950/90 dark:shadow-black/20">
           <div className="mb-4 flex items-center justify-between">
@@ -315,7 +349,6 @@ export default async function DashboardPage() {
             </ul>
           )}
         </section>
-      </div>
-    </main>
+    </AuthenticatedPageShell>
   );
 }

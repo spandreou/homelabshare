@@ -6,6 +6,7 @@ import {
   runAutoCleanupAction,
   updateAutoCleanupPolicyAction,
 } from "../actions";
+import { AuthenticatedPageShell } from "../../components/AuthenticatedPageShell";
 import { requireAdmin } from "../../lib/auth";
 import { db } from "../../lib/db";
 import { AdminApprovalToast } from "./admin-approval-toast";
@@ -177,8 +178,7 @@ export default async function AdminPage({
   const totalStorageUsed = storageAggregate._sum.storageUsed ?? BigInt(0);
 
   return (
-    <main className="min-h-screen bg-zinc-950 px-6 py-10 text-zinc-100">
-      <div className="mx-auto max-w-5xl">
+    <AuthenticatedPageShell contentClassName="mx-auto max-w-5xl">
         <AdminApprovalToast
           approved={params.approved === "1"}
           resent={params.resent === "1"}
@@ -391,7 +391,6 @@ export default async function AdminPage({
           adminUserId={adminUser.id}
           activeUserIds={Array.from(new Set(activeSessions.map((session) => session.userId)))}
         />
-      </div>
-    </main>
+    </AuthenticatedPageShell>
   );
 }

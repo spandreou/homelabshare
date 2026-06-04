@@ -1,6 +1,7 @@
 import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { Activity, Database, HardDrive, Users } from "lucide-react";
+import { AuthenticatedPageShell } from "../../../components/AuthenticatedPageShell";
 import { requireAdmin } from "../../../lib/auth";
 import { db } from "../../../lib/db";
 import { UPLOAD_ROOT } from "../../../lib/storage";
@@ -116,8 +117,7 @@ export default async function AdminStatsPage() {
     }));
 
   return (
-    <main className="min-h-screen bg-zinc-950 px-6 py-10 text-zinc-100">
-      <div className="mx-auto max-w-6xl space-y-6">
+    <AuthenticatedPageShell contentClassName="mx-auto max-w-6xl space-y-6">
         <header>
           <h1 className="text-3xl font-bold tracking-tight">
             <span className="text-green-400">Admin</span> System Health
@@ -213,7 +213,6 @@ export default async function AdminStatsPage() {
             </div>
           )}
         </section>
-      </div>
-    </main>
+    </AuthenticatedPageShell>
   );
 }

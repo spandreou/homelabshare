@@ -7,7 +7,6 @@ import toast from "react-hot-toast";
 import { loginAction, registerAction } from "../app/actions";
 import { initialAuthState } from "../app/action-types";
 import Lightfall from "./Lightfall";
-import { ThemeSwitcher } from "./ThemeSwitcher";
 
 function SubmitButton({ idleLabel, pendingLabel }: { idleLabel: string; pendingLabel: string }) {
   const { pending } = useFormStatus();
@@ -70,9 +69,6 @@ export default function LandingClient() {
       />
       <div className="relative z-10 mx-auto flex min-h-[80vh] max-w-6xl flex-col justify-center">
         <header className="mb-10 text-center">
-          <div className="mb-4 flex justify-end">
-            <ThemeSwitcher />
-          </div>
           <h1 className="text-4xl font-bold tracking-tight transition-shadow dark:drop-shadow-[0_0_22px_rgba(34,197,94,0.45)] sm:text-5xl">
             <span className="text-green-600">homeLab</span>Share
           </h1>
