@@ -1,5 +1,6 @@
 import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
+import Link from "next/link";
 import { Activity, Database, HardDrive, Users } from "lucide-react";
 import { AuthenticatedPageShell } from "../../../components/AuthenticatedPageShell";
 import { requireAdmin } from "../../../lib/auth";
@@ -124,6 +125,34 @@ export default async function AdminStatsPage() {
           </h1>
           <p className="mt-2 text-sm text-zinc-400">Production-readiness metrics and live usage overview.</p>
         </header>
+
+        <section className="flex flex-wrap gap-2">
+          <Link
+            href="/admin"
+            className="rounded-md border border-zinc-700 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-zinc-200 transition duration-200 hover:scale-[1.01] hover:border-green-600 hover:text-green-400 active:scale-[0.98]"
+          >
+            Admin Home
+          </Link>
+          <Link
+            href="/admin/stats"
+            aria-current="page"
+            className="rounded-md border border-green-600 bg-green-500/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-green-300 shadow-[0_0_18px_rgba(34,197,94,0.18)]"
+          >
+            Admin Stats
+          </Link>
+          <Link
+            href="/dashboard"
+            className="rounded-md border border-zinc-700 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-zinc-200 transition duration-200 hover:scale-[1.01] hover:border-green-600 hover:text-green-400 active:scale-[0.98]"
+          >
+            Dashboard
+          </Link>
+          <Link
+            href="/dashboard/files"
+            className="rounded-md border border-zinc-700 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-zinc-200 transition duration-200 hover:scale-[1.01] hover:border-green-600 hover:text-green-400 active:scale-[0.98]"
+          >
+            Files Explorer
+          </Link>
+        </section>
 
         <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <article className="rounded-2xl border border-zinc-800 bg-zinc-900/80 p-5">
