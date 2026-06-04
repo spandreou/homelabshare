@@ -75,8 +75,8 @@ export async function collectSystemStats(): Promise<SystemStats> {
   const diskUsedPercent = diskTotal > 0 ? (diskUsed / diskTotal) * 100 : 0;
 
   const ramTotal = memory.total;
-  const ramUsed = memory.used;
-  const ramFree = memory.available;
+  const ramAvailable = memory.available;
+  const ramUsed = Math.max(0, ramTotal - ramAvailable);
   const ramUsedPercent = ramTotal > 0 ? (ramUsed / ramTotal) * 100 : 0;
 
   const cpuUsagePercentRaw =
@@ -89,7 +89,7 @@ export async function collectSystemStats(): Promise<SystemStats> {
     cpuTempC: cpuTempRaw === null ? null : Number(cpuTempRaw.toFixed(1)),
     ramTotalGb: Number((ramTotal / 1024 ** 3).toFixed(2)),
     ramUsedGb: Number((ramUsed / 1024 ** 3).toFixed(2)),
-    ramFreeGb: Number((ramFree / 1024 ** 3).toFixed(2)),
+    ramFreeGb: Number((ramAvailable / 1024 ** 3).toFixed(2)),
     ramUsedPercent: Number(ramUsedPercent.toFixed(1)),
     diskTotalGb: Number((diskTotal / 1024 ** 3).toFixed(2)),
     diskFreeGb: Number((diskFree / 1024 ** 3).toFixed(2)),

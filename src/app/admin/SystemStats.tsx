@@ -82,7 +82,7 @@ export function SystemStats({ initialStats }: { initialStats: SystemStats }) {
           <div className="mt-3">
             <Progress value={stats.ramUsedPercent} />
           </div>
-          <p className="mt-2 text-xs text-zinc-500">Free: {stats.ramFreeGb} GB ({stats.ramUsedPercent}% used)</p>
+          <p className="mt-2 text-xs text-zinc-500">Available: {stats.ramFreeGb} GB ({stats.ramUsedPercent}% used)</p>
         </article>
 
         <article className="rounded-xl border border-zinc-800 bg-zinc-950/70 p-4 transition duration-200 hover:scale-[1.01] hover:border-zinc-700">
