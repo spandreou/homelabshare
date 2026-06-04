@@ -6,7 +6,7 @@ import { useFormStatus } from "react-dom";
 import toast from "react-hot-toast";
 import { loginAction, registerAction } from "../app/actions";
 import { initialAuthState } from "../app/action-types";
-import Lightfall from "./Lightfall";
+import { ResponsiveLightfall } from "./ResponsiveLightfall";
 
 function SubmitButton({ idleLabel, pendingLabel }: { idleLabel: string; pendingLabel: string }) {
   const { pending } = useFormStatus();
@@ -44,8 +44,11 @@ export default function LandingClient() {
 
   return (
     <main className="relative isolate min-h-screen overflow-hidden bg-[#061066] px-6 py-12 text-zinc-900 dark:text-zinc-100">
-      <div aria-hidden="true" className="absolute inset-0 z-0">
-        <Lightfall
+      <div
+        aria-hidden="true"
+        className="absolute inset-0 z-0 bg-[radial-gradient(circle_at_top,rgba(82,39,255,0.55),rgba(10,41,255,0.18)_34%,rgba(2,4,24,0.92)_82%)]"
+      >
+        <ResponsiveLightfall
           colors={["#A6C8FF", "#5227FF", "#FF9FFC"]}
           backgroundColor="#0A29FF"
           speed={0.5}

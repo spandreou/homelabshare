@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import Lightfall from "./Lightfall";
+import { ResponsiveLightfall } from "./ResponsiveLightfall";
 
 type AuthenticatedPageShellProps = {
   children: ReactNode;
@@ -14,8 +14,11 @@ export function AuthenticatedPageShell({
 }: AuthenticatedPageShellProps) {
   return (
     <main className={`relative isolate min-h-screen overflow-hidden bg-[#061066] text-zinc-100 ${className}`}>
-      <div aria-hidden="true" className="absolute inset-0 z-0">
-        <Lightfall
+      <div
+        aria-hidden="true"
+        className="absolute inset-0 z-0 bg-[radial-gradient(circle_at_top,rgba(82,39,255,0.55),rgba(10,41,255,0.18)_34%,rgba(2,4,24,0.92)_82%)]"
+      >
+        <ResponsiveLightfall
           colors={["#A6C8FF", "#5227FF", "#FF9FFC"]}
           backgroundColor="#0A29FF"
           speed={0.5}
