@@ -7,28 +7,41 @@ const globalForPrisma = globalThis as unknown as {
   prisma?: PrismaClient;
 };
 
-const connectionString = process.env.DATABASE_URL;
+function getConnectionString() {
+  const connectionString = process.env.DATABASE_URL;
 
-if (!connectionString) {
-  throw new Error("DATABASE_URL is not configured.");
+  if (!connectionString) {
+    throw new Error("DATABASE_URL is not configured.");
+  }
+
+  return connectionString;
 }
 
-const pool =
-  globalForPrisma.pool ??
-  new Pool({
-    connectionString,
-  });
+function getPool() {
+  if (!globalForPrisma.pool) {
+    globalForPrisma.pool = new Pool({
+      connectionString: getConnectionString(),
+    });
+  }
 
-const adapter = new PrismaPg(pool);
-
-export const db =
-  globalForPrisma.prisma ??
-  new PrismaClient({
-    adapter,
-    log: ["error", "warn"],
-  });
-
-if (process.env.NODE_ENV !== "production") {
-  globalForPrisma.pool = pool;
-  globalForPrisma.prisma = db;
+  return globalForPrisma.pool;
 }
+
+export function getDb() {
+  if (!globalForPrisma.prisma) {
+    globalForPrisma.prisma = new PrismaClient({
+      adapter: new PrismaPg(getPool()),
+      log: ["error", "warn"],
+    });
+  }
+
+  return globalForPrisma.prisma;
+}
+
+export const db = new Proxy({} as PrismaClient, {
+  get(_target, property, receiver) {
+    const client = getDb();
+    const value = Reflect.get(client, property, receiver);
+    return typeof value === "function" ? value.bind(client) : value;
+  },
+});

@@ -6,7 +6,7 @@ import { useFormStatus } from "react-dom";
 import toast from "react-hot-toast";
 import { loginAction, registerAction } from "../app/actions";
 import { initialAuthState } from "../app/action-types";
-import DotField from "./DotField";
+import Lightfall from "./Lightfall";
 import { ThemeSwitcher } from "./ThemeSwitcher";
 
 function SubmitButton({ idleLabel, pendingLabel }: { idleLabel: string; pendingLabel: string }) {
@@ -44,23 +44,29 @@ export default function LandingClient() {
   }, [registerState.error]);
 
   return (
-    <main className="relative isolate min-h-screen overflow-hidden bg-zinc-100 px-6 py-12 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
-      <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-0">
-        <DotField
-          dotRadius={3}
-          dotSpacing={15}
-          bulgeStrength={58}
-          glowRadius={190}
-          cursorRadius={460}
-          cursorForce={0.1}
-          gradientFrom="rgba(34, 197, 94, 0.82)"
-          gradientTo="rgba(20, 184, 166, 0.58)"
-          glowColor="rgba(34, 197, 94, 0.28)"
+    <main className="relative isolate min-h-screen overflow-hidden bg-[#061066] px-6 py-12 text-zinc-900 dark:text-zinc-100">
+      <div aria-hidden="true" className="absolute inset-0 z-0">
+        <Lightfall
+          colors={["#A6C8FF", "#5227FF", "#FF9FFC"]}
+          backgroundColor="#0A29FF"
+          speed={0.5}
+          streakCount={2}
+          streakWidth={1}
+          streakLength={1}
+          glow={1}
+          density={0.6}
+          twinkle={1}
+          zoom={3}
+          backgroundGlow={0.5}
+          opacity={1}
+          mouseInteraction
+          mouseStrength={0.5}
+          mouseRadius={1}
         />
       </div>
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-0 z-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.38),rgba(244,244,245,0.66)_38%,rgba(244,244,245,0.86)_72%)] dark:bg-[radial-gradient(circle_at_top,rgba(24,24,27,0.06),rgba(9,9,11,0.32)_42%,rgba(9,9,11,0.62)_78%)]"
+        className="pointer-events-none absolute inset-0 z-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.55),rgba(255,255,255,0.28)_35%,rgba(7,10,48,0.42)_78%)] dark:bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.08),rgba(7,10,48,0.18)_36%,rgba(2,4,24,0.58)_82%)]"
       />
       <div className="relative z-10 mx-auto flex min-h-[80vh] max-w-6xl flex-col justify-center">
         <header className="mb-10 text-center">

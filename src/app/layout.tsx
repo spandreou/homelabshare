@@ -33,7 +33,7 @@ export default function RootLayout({
       <body className="min-h-full bg-background text-foreground">
         <ThemeServiceProvider>
           {children}
-          <div className="pointer-events-none fixed bottom-4 right-4 z-40">
+          <div className="pointer-events-none fixed bottom-4 right-4 z-40 hidden sm:block">
             <p className="rounded-full border border-green-500/40 bg-zinc-950/70 px-4 py-2 text-xs font-medium tracking-wide text-zinc-200 shadow-[0_0_22px_rgba(34,197,94,0.45)] backdrop-blur">
               created by{" "}
               <a
