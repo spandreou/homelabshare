@@ -122,3 +122,5 @@ node -e 'const s=process.env.SESSION_SECRET||\"\"; console.log(s ? `SESSION_SECR
 - Secrets are never committed. Use `.env` locally and keep real credentials out of git.
 - Certificate files (`*.pem`) and Cloudflare credential JSON files are ignored by `.gitignore`.
 - Build and runtime artifacts (`node_modules`, `.next`, `dist`, `uploads`) are ignored.
+- Security requirements are documented in `docs/SECURITY_GUIDELINES.md`.
+- Project operating context and agent guidance are documented in `docs/PROJECT_BRAIN.md`.
