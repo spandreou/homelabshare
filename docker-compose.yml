@@ -4,9 +4,9 @@ services:
     container_name: homelabshare-db
     restart: unless-stopped
     environment:
-      POSTGRES_DB: homelab_db
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: 5463
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
     volumes:
       - /home/spandreou/docker-data/postgres:/var/lib/postgresql/data
     healthcheck:
@@ -24,7 +24,7 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql://admin:5463@db:5432/homelab_db?schema=public
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
       NODE_ENV: production
       PORT: 3000
       APP_URL: ${APP_URL:?APP_URL is required}
