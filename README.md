@@ -122,3 +122,17 @@ node -e 'const s=process.env.SESSION_SECRET||\"\"; console.log(s ? `SESSION_SECR
 - Secrets are never committed. Use `.env` locally and keep real credentials out of git.
 - Certificate files (`*.pem`) and Cloudflare credential JSON files are ignored by `.gitignore`.
 - Build and runtime artifacts (`node_modules`, `.next`, `dist`, `uploads`) are ignored.
+- Security requirements are documented in `docs/SECURITY_GUIDELINES.md`.
+- Project operating context and agent guidance are documented in `docs/PROJECT_BRAIN.md`.
+
+## Security checks
+
+Run dependency and baseline security scans before dependency updates or release work:
+
+```bash
+npm run security:audit
+npm run security:cve
+npm run security:scan
+```
+
+CI also runs npm audit, OWASP CVE Lite, Trivy, and report-only Semgrep through `.github/workflows/security-scan.yml`.
