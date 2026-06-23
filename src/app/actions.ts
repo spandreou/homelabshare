@@ -18,6 +18,7 @@ import type {
 import { createSession, destroySession, getCurrentUser, hashPassword, requireAdmin, requireUser, verifyPassword } from "../lib/auth";
 import { db } from "../lib/db";
 import { resolveDisplayFileName } from "../lib/file-name-display";
+import { getFormDataString, getFormDataValue, isFormDataOn } from "../lib/form-data";
 import { sendInviteCodeEmail } from "../lib/mail";
 import { collectSystemStats, type SystemStats } from "../lib/system-stats";
 import { UPLOAD_ROOT } from "../lib/storage";
@@ -511,8 +512,8 @@ export async function generateShareLink(
   formData: FormData,
 ): Promise<ShareLinkState> {
   const user = await requireUser();
-  const fileId = String(formData.get("fileId") ?? "").trim();
-  const rawExpiryHours = Number(String(formData.get("expiryHours") ?? "24"));
+  const fileId = getFormDataString(formData, "fileId").trim();
+  const rawExpiryHours = Number(getFormDataString(formData, "expiryHours", "24"));
   const expiryHours = Number.isFinite(rawExpiryHours)
     ? Math.min(24 * 30, Math.max(1, Math.trunc(rawExpiryHours)))
     : 24;
@@ -614,7 +615,7 @@ export async function revokeShareLink(shareId: string) {
 
 export async function zipFiles(formData: FormData) {
   const user = await requireUser();
-  const raw = String(formData.get("paths") ?? "[]");
+  const raw = getFormDataString(formData, "paths", "[]");
   let paths: string[] = [];
 
   try {
@@ -688,9 +689,9 @@ export async function registerAction(
   formData: FormData,
 ): Promise<AuthActionState> {
   const parsed = registerSchema.safeParse({
-    email: String(formData.get("email") ?? "").trim().toLowerCase(),
-    password: String(formData.get("password") ?? ""),
-    inviteCode: String(formData.get("inviteCode") ?? "").trim().toUpperCase(),
+    email: getFormDataString(formData, "email").trim().toLowerCase(),
+    password: getFormDataString(formData, "password"),
+    inviteCode: getFormDataString(formData, "inviteCode").trim().toUpperCase(),
   });
 
   if (!parsed.success) {
@@ -781,8 +782,8 @@ export async function loginAction(
   formData: FormData,
 ): Promise<AuthActionState> {
   const parsed = loginSchema.safeParse({
-    email: String(formData.get("email") ?? "").trim().toLowerCase(),
-    password: String(formData.get("password") ?? ""),
+    email: getFormDataString(formData, "email").trim().toLowerCase(),
+    password: getFormDataString(formData, "password"),
   });
 
   if (!parsed.success) {
@@ -790,7 +791,7 @@ export async function loginAction(
   }
 
   const { email, password } = parsed.data;
-  const nextPath = String(formData.get("next") ?? "").trim();
+  const nextPath = getFormDataString(formData, "next").trim();
   const requestHeaders = await headers();
   const forwardedFor = requestHeaders.get("cf-connecting-ip") ?? requestHeaders.get("x-forwarded-for") ?? requestHeaders.get("x-real-ip");
   const clientIp = forwardedFor?.split(",")[0]?.trim() || "unknown";
@@ -876,7 +877,7 @@ export async function uploadFileAction(
 ): Promise<FileActionState> {
   const user = await requireUser();
   const parsed = uploadSchema.safeParse({
-    file: formData.get("file"),
+    file: getFormDataValue(formData, "file"),
   });
 
   if (!parsed.success) {
@@ -948,7 +949,7 @@ export async function uploadFile(
   formData: FormData,
 ): Promise<FileActionState> {
   const user = await requireUser();
-  const selected = formData.get("file");
+  const selected = getFormDataValue(formData, "file");
   if (!(selected instanceof File) || selected.size <= 0) {
     return { error: "Please choose a file to upload.", success: null };
   }
@@ -964,7 +965,7 @@ export async function uploadFile(
     };
   }
 
-  const explicitOriginalName = String(formData.get("originalName") ?? "").trim();
+  const explicitOriginalName = getFormDataString(formData, "originalName").trim();
   const originalName = path.basename(explicitOriginalName || selected.name).trim() || `upload-${Date.now()}`;
   const storageSafeName = sanitizeFileNameForStorage(originalName) || `upload-${Date.now()}`;
   const ownerFolder = user.role === "ADMIN" ? ADMIN_GLOBAL_FOLDER : user.id;
@@ -1167,8 +1168,8 @@ export async function requestInvite(
   formData: FormData,
 ): Promise<InviteRequestActionState> {
   const parsed = inviteRequestSchema.safeParse({
-    username: String(formData.get("username") ?? ""),
-    email: String(formData.get("email") ?? "").trim().toLowerCase(),
+    username: getFormDataString(formData, "username"),
+    email: getFormDataString(formData, "email").trim().toLowerCase(),
   });
 
   if (!parsed.success) {
@@ -1359,7 +1360,7 @@ export async function generateManualInvite(
   const admin = await requireAdmin();
 
   const parsed = activationCodeSchema.safeParse({
-    email: String(formData.get("email") ?? "").trim().toLowerCase(),
+    email: getFormDataString(formData, "email").trim().toLowerCase(),
   });
 
   if (!parsed.success) {
@@ -1566,9 +1567,9 @@ export async function cleanupOrphanedFilesAction() {
 export async function updateAutoCleanupPolicyAction(formData: FormData) {
   const admin = await requireAdmin();
 
-  const enabled = String(formData.get("enabled") ?? "") === "on";
-  const excludeFavorited = String(formData.get("excludeFavorited") ?? "") === "on";
-  const rawDays = Number(String(formData.get("maxAgeDays") ?? "30"));
+  const enabled = isFormDataOn(formData, "enabled");
+  const excludeFavorited = isFormDataOn(formData, "excludeFavorited");
+  const rawDays = Number(getFormDataString(formData, "maxAgeDays", "30"));
   const maxAgeDays = Number.isFinite(rawDays) ? Math.min(3650, Math.max(1, Math.trunc(rawDays))) : 30;
 
   await db.autoCleanupPolicy.upsert({
@@ -1599,7 +1600,7 @@ export async function updateAutoCleanupPolicyAction(formData: FormData) {
 
 export async function runAutoCleanupAction(formData: FormData) {
   const admin = await requireAdmin();
-  const confirmation = String(formData.get("confirm") ?? "").trim().toUpperCase();
+  const confirmation = getFormDataString(formData, "confirm").trim().toUpperCase();
 
   if (confirmation !== "CLEANUP") {
     redirect("/admin?autoCleanupRunError=confirm");
