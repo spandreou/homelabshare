@@ -5,6 +5,7 @@ import { AuditAction, UserRole } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "../../../../lib/auth";
 import { db } from "../../../../lib/db";
+import { getFormDataString, getFormDataValue } from "../../../../lib/form-data";
 import { UPLOAD_ROOT } from "../../../../lib/storage";
 
 const MAX_UPLOAD_BYTES = 150 * 1024 * 1024;
@@ -80,7 +81,7 @@ export async function POST(request: Request) {
   }
 
   const formData = await request.formData();
-  const selected = formData.get("file");
+  const selected = getFormDataValue(formData, "file");
 
   if (!(selected instanceof File) || selected.size <= 0) {
     return NextResponse.json({ error: "Please choose a file to upload." }, { status: 400 });
@@ -95,7 +96,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Not enough storage space for this file." }, { status: 400 });
   }
 
-  const explicitOriginalName = String(formData.get("originalName") ?? "").trim();
+  const explicitOriginalName = getFormDataString(formData, "originalName").trim();
   const originalName = path.basename(explicitOriginalName || selected.name).trim() || `upload-${Date.now()}`;
   const storageSafeName = sanitizeFileNameForStorage(originalName) || `upload-${Date.now()}`;
   const ownerFolder = user.role === UserRole.ADMIN ? ADMIN_GLOBAL_FOLDER : user.id;
