@@ -1,10 +1,14 @@
 function prefixedFieldName(key: string) {
-  return new RegExp(`^\\d+_${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
+  return new RegExp(`^.+_${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
+}
+
+function isMeaningfulValue(value: FormDataEntryValue) {
+  return typeof value !== "string" || value.length > 0;
 }
 
 export function getFormDataValue(formData: FormData, key: string): FormDataEntryValue | null {
   const exact = formData.get(key);
-  if (exact !== null) {
+  if (exact !== null && isMeaningfulValue(exact)) {
     return exact;
   }
 
@@ -13,7 +17,7 @@ export function getFormDataValue(formData: FormData, key: string): FormDataEntry
   let matched = false;
 
   for (const [name, value] of formData.entries()) {
-    if (!prefixedPattern.test(name)) {
+    if (!prefixedPattern.test(name) || !isMeaningfulValue(value)) {
       continue;
     }
 
@@ -25,7 +29,7 @@ export function getFormDataValue(formData: FormData, key: string): FormDataEntry
     match = value;
   }
 
-  return match;
+  return match ?? exact;
 }
 
 export function getFormDataString(formData: FormData, key: string, fallback = "") {
