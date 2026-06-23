@@ -30,15 +30,29 @@ function takeRateLimitSlot(key: string) {
   return true;
 }
 
+function appOrigin(request: Request) {
+  const configured = (process.env.APP_URL ?? "").trim().replace(/\/+$/, "");
+  if (configured) {
+    return configured;
+  }
+
+  const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
+  const proto =
+    request.headers.get("x-forwarded-proto") ??
+    (process.env.NODE_ENV === "production" ? "https" : "http");
+
+  return host ? `${proto}://${host}` : request.url;
+}
+
 function landingRedirect(request: Request, error: string) {
-  const url = new URL("/", request.url);
+  const url = new URL("/", appOrigin(request));
   url.searchParams.set("loginError", error);
   return NextResponse.redirect(url, 303);
 }
 
 function dashboardRedirect(request: Request, nextPath: string) {
   const safeNextPath = nextPath.startsWith("/") && !nextPath.startsWith("//") ? nextPath : "/dashboard";
-  return NextResponse.redirect(new URL(safeNextPath, request.url), 303);
+  return NextResponse.redirect(new URL(safeNextPath, appOrigin(request)), 303);
 }
 
 export async function POST(request: Request) {
