@@ -117,6 +117,34 @@ function buildInviteCode() {
   return `${part(4)}-${part(4)}`;
 }
 
+function isFormDataLike(value: unknown): value is FormData {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const candidate = value as {
+    entries?: unknown;
+    get?: unknown;
+  };
+  return typeof candidate.entries === "function" && typeof candidate.get === "function";
+}
+
+function hasFormDataEntries(formData: FormData) {
+  return !formData.entries().next().done;
+}
+
+function resolveActionFormData(prevState: unknown, formData: FormData) {
+  if (hasFormDataEntries(formData)) {
+    return formData;
+  }
+
+  if (isFormDataLike(prevState)) {
+    return prevState;
+  }
+
+  return formData;
+}
+
 async function createUniqueInviteCode() {
   for (let attempt = 0; attempt < 10; attempt += 1) {
     const candidate = buildInviteCode();
@@ -508,12 +536,13 @@ export async function toggleFavoriteAction(fileId: string) {
 }
 
 export async function generateShareLink(
-  _prevState: ShareLinkState,
+  prevState: ShareLinkState | FormData,
   formData: FormData,
 ): Promise<ShareLinkState> {
   const user = await requireUser();
-  const fileId = getFormDataString(formData, "fileId").trim();
-  const rawExpiryHours = Number(getFormDataString(formData, "expiryHours", "24"));
+  const actionFormData = resolveActionFormData(prevState, formData);
+  const fileId = getFormDataString(actionFormData, "fileId").trim();
+  const rawExpiryHours = Number(getFormDataString(actionFormData, "expiryHours", "24"));
   const expiryHours = Number.isFinite(rawExpiryHours)
     ? Math.min(24 * 30, Math.max(1, Math.trunc(rawExpiryHours)))
     : 24;
@@ -685,13 +714,14 @@ export async function getSystemStats(): Promise<SystemStats> {
 }
 
 export async function registerAction(
-  _prevState: AuthActionState,
+  prevState: AuthActionState | FormData,
   formData: FormData,
 ): Promise<AuthActionState> {
+  const actionFormData = resolveActionFormData(prevState, formData);
   const parsed = registerSchema.safeParse({
-    email: getFormDataString(formData, "email").trim().toLowerCase(),
-    password: getFormDataString(formData, "password"),
-    inviteCode: getFormDataString(formData, "inviteCode").trim().toUpperCase(),
+    email: getFormDataString(actionFormData, "email").trim().toLowerCase(),
+    password: getFormDataString(actionFormData, "password"),
+    inviteCode: getFormDataString(actionFormData, "inviteCode").trim().toUpperCase(),
   });
 
   if (!parsed.success) {
@@ -778,12 +808,13 @@ export async function registerAction(
 }
 
 export async function loginAction(
-  _prevState: AuthActionState,
+  prevState: AuthActionState | FormData,
   formData: FormData,
 ): Promise<AuthActionState> {
+  const actionFormData = resolveActionFormData(prevState, formData);
   const parsed = loginSchema.safeParse({
-    email: getFormDataString(formData, "email").trim().toLowerCase(),
-    password: getFormDataString(formData, "password"),
+    email: getFormDataString(actionFormData, "email").trim().toLowerCase(),
+    password: getFormDataString(actionFormData, "password"),
   });
 
   if (!parsed.success) {
@@ -791,7 +822,7 @@ export async function loginAction(
   }
 
   const { email, password } = parsed.data;
-  const nextPath = getFormDataString(formData, "next").trim();
+  const nextPath = getFormDataString(actionFormData, "next").trim();
   const requestHeaders = await headers();
   const forwardedFor = requestHeaders.get("cf-connecting-ip") ?? requestHeaders.get("x-forwarded-for") ?? requestHeaders.get("x-real-ip");
   const clientIp = forwardedFor?.split(",")[0]?.trim() || "unknown";
@@ -872,12 +903,13 @@ export async function logoutAction() {
 }
 
 export async function uploadFileAction(
-  _prevState: FileActionState,
+  prevState: FileActionState | FormData,
   formData: FormData,
 ): Promise<FileActionState> {
   const user = await requireUser();
+  const actionFormData = resolveActionFormData(prevState, formData);
   const parsed = uploadSchema.safeParse({
-    file: getFormDataValue(formData, "file"),
+    file: getFormDataValue(actionFormData, "file"),
   });
 
   if (!parsed.success) {
@@ -945,11 +977,12 @@ export async function uploadFileAction(
 }
 
 export async function uploadFile(
-  _prevState: FileActionState,
+  prevState: FileActionState | FormData,
   formData: FormData,
 ): Promise<FileActionState> {
   const user = await requireUser();
-  const selected = getFormDataValue(formData, "file");
+  const actionFormData = resolveActionFormData(prevState, formData);
+  const selected = getFormDataValue(actionFormData, "file");
   if (!(selected instanceof File) || selected.size <= 0) {
     return { error: "Please choose a file to upload.", success: null };
   }
@@ -965,7 +998,7 @@ export async function uploadFile(
     };
   }
 
-  const explicitOriginalName = getFormDataString(formData, "originalName").trim();
+  const explicitOriginalName = getFormDataString(actionFormData, "originalName").trim();
   const originalName = path.basename(explicitOriginalName || selected.name).trim() || `upload-${Date.now()}`;
   const storageSafeName = sanitizeFileNameForStorage(originalName) || `upload-${Date.now()}`;
   const ownerFolder = user.role === "ADMIN" ? ADMIN_GLOBAL_FOLDER : user.id;
@@ -1164,12 +1197,13 @@ export async function downloadFileAction(fileId: string) {
 }
 
 export async function requestInvite(
-  _prevState: InviteRequestActionState,
+  prevState: InviteRequestActionState | FormData,
   formData: FormData,
 ): Promise<InviteRequestActionState> {
+  const actionFormData = resolveActionFormData(prevState, formData);
   const parsed = inviteRequestSchema.safeParse({
-    username: getFormDataString(formData, "username"),
-    email: getFormDataString(formData, "email").trim().toLowerCase(),
+    username: getFormDataString(actionFormData, "username"),
+    email: getFormDataString(actionFormData, "email").trim().toLowerCase(),
   });
 
   if (!parsed.success) {
@@ -1354,13 +1388,14 @@ export async function deleteInviteRequest(requestId: string) {
 }
 
 export async function generateManualInvite(
-  _prevState: ManualInviteState,
+  prevState: ManualInviteState | FormData,
   formData: FormData,
 ): Promise<ManualInviteState> {
   const admin = await requireAdmin();
+  const actionFormData = resolveActionFormData(prevState, formData);
 
   const parsed = activationCodeSchema.safeParse({
-    email: getFormDataString(formData, "email").trim().toLowerCase(),
+    email: getFormDataString(actionFormData, "email").trim().toLowerCase(),
   });
 
   if (!parsed.success) {
