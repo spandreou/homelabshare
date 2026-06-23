@@ -78,8 +78,9 @@ export async function POST(request: Request) {
     return landingRedirect(request, "invalid");
   }
 
+  let sessionCookie: Awaited<ReturnType<typeof createSession>>;
   try {
-    await createSession({
+    sessionCookie = await createSession({
       userId: user.id,
       role: user.role,
       email: user.email,
@@ -98,5 +99,7 @@ export async function POST(request: Request) {
     },
   }).catch(() => undefined);
 
-  return dashboardRedirect(request, getFormDataString(formData, "next").trim());
+  const response = dashboardRedirect(request, getFormDataString(formData, "next").trim());
+  response.cookies.set(sessionCookie.name, sessionCookie.value, sessionCookie.options);
+  return response;
 }

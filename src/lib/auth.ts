@@ -110,13 +110,21 @@ export async function createSession(params: { userId: string; role: UserRole; em
     },
   });
 
-  cookieStore.set(SESSION_COOKIE, token, {
+  const cookieOptions = {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
     path: "/",
     maxAge: SESSION_TTL_SECONDS,
-  });
+  } as const;
+
+  cookieStore.set(SESSION_COOKIE, token, cookieOptions);
+
+  return {
+    name: SESSION_COOKIE,
+    options: cookieOptions,
+    value: token,
+  };
 }
 
 export async function destroySession() {
