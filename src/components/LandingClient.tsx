@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useActionState, useEffect, useRef } from "react";
 import { useFormStatus } from "react-dom";
 import toast from "react-hot-toast";
-import { loginAction, registerAction } from "../app/actions";
+import { registerAction } from "../app/actions";
 import { initialAuthState } from "../app/action-types";
 import { ResponsiveLightfall } from "./ResponsiveLightfall";
 
@@ -22,18 +22,30 @@ function SubmitButton({ idleLabel, pendingLabel }: { idleLabel: string; pendingL
   );
 }
 
-export default function LandingClient() {
-  const [loginState, loginFormAction] = useActionState(loginAction, initialAuthState);
+function loginErrorMessage(code: string | null) {
+  return code === "invalid-email"
+    ? "Please enter a valid email address."
+    : code === "rate-limited"
+      ? "Too many login attempts. Please wait a minute and try again."
+      : code === "invalid"
+        ? "Invalid email or password."
+        : code === "session"
+          ? "Could not start your session right now. Please try again."
+          : null;
+}
+
+export default function LandingClient({ loginErrorCode = null }: { loginErrorCode?: string | null }) {
   const [registerState, registerFormAction] = useActionState(registerAction, initialAuthState);
+  const loginError = loginErrorMessage(loginErrorCode);
   const lastLoginErrorRef = useRef<string | null>(null);
   const lastRegisterErrorRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (loginState.error && loginState.error !== lastLoginErrorRef.current) {
-      toast.error(loginState.error);
-      lastLoginErrorRef.current = loginState.error;
+    if (loginError && loginError !== lastLoginErrorRef.current) {
+      toast.error(loginError);
+      lastLoginErrorRef.current = loginError;
     }
-  }, [loginState.error]);
+  }, [loginError]);
 
   useEffect(() => {
     if (registerState.error && registerState.error !== lastRegisterErrorRef.current) {
@@ -89,7 +101,7 @@ export default function LandingClient() {
             <h2 className="text-xl font-semibold">Login</h2>
             <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">For existing members.</p>
 
-            <form action={loginFormAction} className="mt-6 space-y-4">
+            <form action="/api/auth/login" method="post" className="mt-6 space-y-4">
               <input
                 name="email"
                 type="email"
@@ -107,9 +119,9 @@ export default function LandingClient() {
                 required
               />
 
-              {loginState.error ? (
+              {loginError ? (
                 <p className="rounded-md border border-red-900/60 bg-red-950/40 px-3 py-2 text-sm text-red-300">
-                  {loginState.error}
+                  {loginError}
                 </p>
               ) : null}
 
