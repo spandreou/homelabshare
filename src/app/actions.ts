@@ -133,16 +133,21 @@ function hasFormDataEntries(formData: FormData) {
   return !formData.entries().next().done;
 }
 
-function resolveActionFormData(prevState: unknown, formData: FormData) {
-  if (hasFormDataEntries(formData)) {
-    return formData;
+function resolveActionFormData(...candidates: unknown[]) {
+  let fallback: FormData | null = null;
+
+  for (const candidate of candidates) {
+    if (!isFormDataLike(candidate)) {
+      continue;
+    }
+
+    fallback ??= candidate;
+    if (hasFormDataEntries(candidate)) {
+      return candidate;
+    }
   }
 
-  if (isFormDataLike(prevState)) {
-    return prevState;
-  }
-
-  return formData;
+  return fallback ?? new FormData();
 }
 
 async function createUniqueInviteCode() {
@@ -536,11 +541,10 @@ export async function toggleFavoriteAction(fileId: string) {
 }
 
 export async function generateShareLink(
-  prevState: ShareLinkState | FormData,
-  formData: FormData,
+  ...args: [ShareLinkState | FormData, FormData, ...unknown[]]
 ): Promise<ShareLinkState> {
   const user = await requireUser();
-  const actionFormData = resolveActionFormData(prevState, formData);
+  const actionFormData = resolveActionFormData(...args);
   const fileId = getFormDataString(actionFormData, "fileId").trim();
   const rawExpiryHours = Number(getFormDataString(actionFormData, "expiryHours", "24"));
   const expiryHours = Number.isFinite(rawExpiryHours)
@@ -714,10 +718,9 @@ export async function getSystemStats(): Promise<SystemStats> {
 }
 
 export async function registerAction(
-  prevState: AuthActionState | FormData,
-  formData: FormData,
+  ...args: [AuthActionState | FormData, FormData, ...unknown[]]
 ): Promise<AuthActionState> {
-  const actionFormData = resolveActionFormData(prevState, formData);
+  const actionFormData = resolveActionFormData(...args);
   const parsed = registerSchema.safeParse({
     email: getFormDataString(actionFormData, "email").trim().toLowerCase(),
     password: getFormDataString(actionFormData, "password"),
@@ -808,10 +811,9 @@ export async function registerAction(
 }
 
 export async function loginAction(
-  prevState: AuthActionState | FormData,
-  formData: FormData,
+  ...args: [AuthActionState | FormData, FormData, ...unknown[]]
 ): Promise<AuthActionState> {
-  const actionFormData = resolveActionFormData(prevState, formData);
+  const actionFormData = resolveActionFormData(...args);
   const parsed = loginSchema.safeParse({
     email: getFormDataString(actionFormData, "email").trim().toLowerCase(),
     password: getFormDataString(actionFormData, "password"),
@@ -903,11 +905,10 @@ export async function logoutAction() {
 }
 
 export async function uploadFileAction(
-  prevState: FileActionState | FormData,
-  formData: FormData,
+  ...args: [FileActionState | FormData, FormData, ...unknown[]]
 ): Promise<FileActionState> {
   const user = await requireUser();
-  const actionFormData = resolveActionFormData(prevState, formData);
+  const actionFormData = resolveActionFormData(...args);
   const parsed = uploadSchema.safeParse({
     file: getFormDataValue(actionFormData, "file"),
   });
@@ -977,11 +978,10 @@ export async function uploadFileAction(
 }
 
 export async function uploadFile(
-  prevState: FileActionState | FormData,
-  formData: FormData,
+  ...args: [FileActionState | FormData, FormData, ...unknown[]]
 ): Promise<FileActionState> {
   const user = await requireUser();
-  const actionFormData = resolveActionFormData(prevState, formData);
+  const actionFormData = resolveActionFormData(...args);
   const selected = getFormDataValue(actionFormData, "file");
   if (!(selected instanceof File) || selected.size <= 0) {
     return { error: "Please choose a file to upload.", success: null };
@@ -1197,10 +1197,9 @@ export async function downloadFileAction(fileId: string) {
 }
 
 export async function requestInvite(
-  prevState: InviteRequestActionState | FormData,
-  formData: FormData,
+  ...args: [InviteRequestActionState | FormData, FormData, ...unknown[]]
 ): Promise<InviteRequestActionState> {
-  const actionFormData = resolveActionFormData(prevState, formData);
+  const actionFormData = resolveActionFormData(...args);
   const parsed = inviteRequestSchema.safeParse({
     username: getFormDataString(actionFormData, "username"),
     email: getFormDataString(actionFormData, "email").trim().toLowerCase(),
@@ -1388,11 +1387,10 @@ export async function deleteInviteRequest(requestId: string) {
 }
 
 export async function generateManualInvite(
-  prevState: ManualInviteState | FormData,
-  formData: FormData,
+  ...args: [ManualInviteState | FormData, FormData, ...unknown[]]
 ): Promise<ManualInviteState> {
   const admin = await requireAdmin();
-  const actionFormData = resolveActionFormData(prevState, formData);
+  const actionFormData = resolveActionFormData(...args);
 
   const parsed = activationCodeSchema.safeParse({
     email: getFormDataString(actionFormData, "email").trim().toLowerCase(),
