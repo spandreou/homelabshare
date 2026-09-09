@@ -28,5 +28,6 @@ COPY --from=builder /app/next.config.ts ./next.config.ts
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 
+USER node
 EXPOSE 3000
 CMD ["sh", "-c", "npx prisma migrate deploy && npm run start"]
