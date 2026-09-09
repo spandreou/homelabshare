@@ -14,8 +14,17 @@ const contentSecurityPolicy = [
   "form-action 'self'",
 ].join("; ");
 
+import bundleAnalyzer from "@next/bundle-analyzer";
+
+const withBundleAnalyzer = bundleAnalyzer({
+  enabled: process.env.ANALYZE === "true",
+});
+
 const nextConfig: NextConfig = {
+  productionBrowserSourceMaps: true,
+  serverExternalPackages: ["systeminformation"],
   experimental: {
+    optimizePackageImports: ['lucide-react', 'recharts'],
     serverActions: {
       bodySizeLimit: "150mb",
     },
@@ -56,4 +65,4 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+export default withBundleAnalyzer(nextConfig);
