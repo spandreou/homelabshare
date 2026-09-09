@@ -6,7 +6,9 @@ import { AuthenticatedPageShell } from "../../../components/AuthenticatedPageShe
 import { requireAdmin } from "../../../lib/auth";
 import { db } from "../../../lib/db";
 import { UPLOAD_ROOT } from "../../../lib/storage";
-import { StatsCharts } from "./charts";
+import dynamic from "next/dynamic";
+
+const StatsCharts = dynamic(() => import("./charts").then(mod => mod.StatsCharts));
 
 const USER_QUOTA_BYTES = 5 * 1024 * 1024 * 1024;
 const ONLINE_WINDOW_MS = 5 * 60 * 1000;

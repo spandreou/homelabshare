@@ -5,7 +5,7 @@ import { Mesh, Program, Renderer, Triangle } from "ogl";
 
 const MAX_COLORS = 8;
 
-type LightfallProps = {
+export type LightfallProps = {
   className?: string;
   dpr?: number;
   paused?: boolean;

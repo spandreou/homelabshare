@@ -1,10 +1,12 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import type { ComponentProps } from "react";
-import Lightfall from "./Lightfall";
+import dynamic from "next/dynamic";
+import type { LightfallProps } from "./Lightfall";
 
-type ResponsiveLightfallProps = ComponentProps<typeof Lightfall>;
+type ResponsiveLightfallProps = LightfallProps;
+
+const LightfallDynamic = dynamic(() => import("./Lightfall"), { ssr: false });
 
 const animationQuery = "(min-width: 768px) and (any-pointer: fine) and (prefers-reduced-motion: no-preference)";
 
@@ -32,5 +34,5 @@ export function ResponsiveLightfall(props: ResponsiveLightfallProps) {
     return null;
   }
 
-  return <Lightfall {...props} />;
+  return <LightfallDynamic {...props} />;
 }
