@@ -1,11 +1,8 @@
-import { readdir, stat } from "node:fs/promises";
-import path from "node:path";
 import Link from "next/link";
 import { Activity, Database, HardDrive, Users } from "lucide-react";
 import { AuthenticatedPageShell } from "../../../components/AuthenticatedPageShell";
 import { requireAdmin } from "../../../lib/auth";
 import { db } from "../../../lib/db";
-import { UPLOAD_ROOT } from "../../../lib/storage";
 import { StatsCharts } from "./charts";
 
 const USER_QUOTA_BYTES = 5 * 1024 * 1024 * 1024;
@@ -35,34 +32,13 @@ function extensionLabel(fileName: string) {
   return ext.toUpperCase();
 }
 
-async function getDirectoryUsageBytes(dirPath: string): Promise<bigint> {
-  let total = BigInt(0);
-
-  const entries = await readdir(dirPath, { withFileTypes: true }).catch(() => []);
-  for (const entry of entries) {
-    const current = path.join(dirPath, entry.name);
-
-    if (entry.isDirectory()) {
-      total += await getDirectoryUsageBytes(current);
-      continue;
-    }
-
-    if (entry.isFile()) {
-      const stats = await stat(current);
-      total += BigInt(stats.size);
-    }
-  }
-
-  return total;
-}
-
 export default async function AdminStatsPage() {
   await requireAdmin();
 
   const now = new Date();
   const onlineCutoff = new Date(now.getTime() - ONLINE_WINDOW_MS);
 
-  const [users, totalFiles, activeSessions] = await Promise.all([
+  const [users, totalFiles, storageAggregate, activeSessions] = await Promise.all([
     db.user.findMany({
       orderBy: { storageUsed: "desc" },
       select: {
@@ -73,8 +49,12 @@ export default async function AdminStatsPage() {
     }),
     db.file.findMany({
       select: {
-        id: true,
         name: true,
+      },
+    }),
+    db.file.aggregate({
+      _sum: {
+        size: true,
       },
     }),
     db.activeSession.findMany({
@@ -97,7 +77,7 @@ export default async function AdminStatsPage() {
 
   const totalUsers = users.length;
   const totalFileCount = totalFiles.length;
-  const diskUsageBytes = await getDirectoryUsageBytes(UPLOAD_ROOT);
+  const diskUsageBytes = storageAggregate._sum.size ?? BigInt(0);
 
   const userStorageData = users.map((user) => ({
     email: user.email,
