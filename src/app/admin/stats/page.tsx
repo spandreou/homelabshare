@@ -1,11 +1,8 @@
-import { readdir, stat } from "node:fs/promises";
-import path from "node:path";
 import Link from "next/link";
 import { Activity, Database, HardDrive, Users } from "lucide-react";
 import { AuthenticatedPageShell } from "../../../components/AuthenticatedPageShell";
 import { requireAdmin } from "../../../lib/auth";
 import { db } from "../../../lib/db";
-import { UPLOAD_ROOT } from "../../../lib/storage";
 import { StatsCharts } from "./charts";
 
 const USER_QUOTA_BYTES = 5 * 1024 * 1024 * 1024;
@@ -35,34 +32,13 @@ function extensionLabel(fileName: string) {
   return ext.toUpperCase();
 }
 
-async function getDirectoryUsageBytes(dirPath: string): Promise<bigint> {
-  let total = BigInt(0);
-
-  const entries = await readdir(dirPath, { withFileTypes: true }).catch(() => []);
-  for (const entry of entries) {
-    const current = path.join(dirPath, entry.name);
-
-    if (entry.isDirectory()) {
-      total += await getDirectoryUsageBytes(current);
-      continue;
-    }
-
-    if (entry.isFile()) {
-      const stats = await stat(current);
-      total += BigInt(stats.size);
-    }
-  }
-
-  return total;
-}
-
 export default async function AdminStatsPage() {
   await requireAdmin();
 
   const now = new Date();
   const onlineCutoff = new Date(now.getTime() - ONLINE_WINDOW_MS);
 
-  const [users, totalFiles, activeSessions] = await Promise.all([
+  const [users, totalFiles, storageAggregate, activeSessions] = await Promise.all([
     db.user.findMany({
       orderBy: { storageUsed: "desc" },
       select: {
@@ -73,8 +49,12 @@ export default async function AdminStatsPage() {
     }),
     db.file.findMany({
       select: {
-        id: true,
         name: true,
+      },
+    }),
+    db.file.aggregate({
+      _sum: {
+        size: true,
       },
     }),
     db.activeSession.findMany({
@@ -97,7 +77,7 @@ export default async function AdminStatsPage() {
 
   const totalUsers = users.length;
   const totalFileCount = totalFiles.length;
-  const diskUsageBytes = await getDirectoryUsageBytes(UPLOAD_ROOT);
+  const trackedStorageBytes = storageAggregate._sum.size ?? BigInt(0);
 
   const userStorageData = users.map((user) => ({
     email: user.email,
@@ -172,9 +152,10 @@ export default async function AdminStatsPage() {
           <article className="rounded-2xl border border-zinc-800 bg-zinc-900/80 p-5">
             <p className="mb-2 inline-flex items-center gap-2 text-sm text-zinc-400">
               <HardDrive className="h-4 w-4 text-green-400" />
-              Total Disk Usage
+              Tracked File Storage
             </p>
-            <p className="text-3xl font-bold">{formatBytes(diskUsageBytes)}</p>
+            <p className="text-3xl font-bold">{formatBytes(trackedStorageBytes)}</p>
+            <p className="mt-1 text-xs text-zinc-500">Database-tracked uploads only.</p>
           </article>
           <article className="rounded-2xl border border-zinc-800 bg-zinc-900/80 p-5">
             <p className="mb-2 inline-flex items-center gap-2 text-sm text-zinc-400">

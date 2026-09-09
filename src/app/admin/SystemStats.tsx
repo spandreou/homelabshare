@@ -33,8 +33,13 @@ export function SystemStats({ initialStats }: { initialStats: SystemStats }) {
 
   useEffect(() => {
     let disposed = false;
+    let intervalId: ReturnType<typeof setInterval> | null = null;
 
     const load = async () => {
+      if (disposed || document.visibilityState !== "visible") {
+        return;
+      }
+
       const response = await fetch("/api/admin/system-stats", { cache: "no-store" });
       if (!response.ok || disposed) {
         return;
@@ -46,13 +51,40 @@ export function SystemStats({ initialStats }: { initialStats: SystemStats }) {
       }
     };
 
-    const id = setInterval(() => {
-      void load();
-    }, 30_000);
+    const stopPolling = () => {
+      if (intervalId !== null) {
+        clearInterval(intervalId);
+        intervalId = null;
+      }
+    };
+
+    const startPolling = () => {
+      stopPolling();
+      if (disposed || document.visibilityState !== "visible") {
+        return;
+      }
+
+      intervalId = setInterval(() => {
+        void load();
+      }, 30_000);
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void load();
+        startPolling();
+      } else {
+        stopPolling();
+      }
+    };
+
+    startPolling();
+    document.addEventListener("visibilitychange", onVisibilityChange);
 
     return () => {
       disposed = true;
-      clearInterval(id);
+      stopPolling();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, []);
 
