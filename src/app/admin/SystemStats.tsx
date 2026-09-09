@@ -35,6 +35,10 @@ export function SystemStats({ initialStats }: { initialStats: SystemStats }) {
     let disposed = false;
 
     const load = async () => {
+      if (disposed || document.visibilityState !== "visible") {
+        return;
+      }
+
       const response = await fetch("/api/admin/system-stats", { cache: "no-store" });
       if (!response.ok || disposed) {
         return;
@@ -46,13 +50,21 @@ export function SystemStats({ initialStats }: { initialStats: SystemStats }) {
       }
     };
 
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void load();
+      }
+    };
+
     const id = setInterval(() => {
       void load();
     }, 30_000);
+    document.addEventListener("visibilitychange", onVisibilityChange);
 
     return () => {
       disposed = true;
       clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, []);
 
