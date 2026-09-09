@@ -51,8 +51,20 @@ function landingRedirect(request: Request, error: string) {
 }
 
 function dashboardRedirect(request: Request, nextPath: string) {
-  const safeNextPath = nextPath.startsWith("/") && !nextPath.startsWith("//") ? nextPath : "/dashboard";
-  return NextResponse.redirect(new URL(safeNextPath, appOrigin(request)), 303);
+  const baseOrigin = appOrigin(request);
+  let targetUrl: URL;
+
+  try {
+    targetUrl = new URL(nextPath, baseOrigin);
+  } catch {
+    targetUrl = new URL("/dashboard", baseOrigin);
+  }
+
+  if (targetUrl.origin !== new URL(baseOrigin).origin) {
+    targetUrl = new URL("/dashboard", baseOrigin);
+  }
+
+  return NextResponse.redirect(targetUrl, 303);
 }
 
 export async function POST(request: Request) {
