@@ -8,40 +8,27 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "tsx --test \"src/**/*.test.ts\"",
     "db:seed": "prisma db seed",
     "security:audit": "npm audit --audit-level=high",
     "security:cve": "npx --yes cve-lite-cli@1 . --all --verbose --fail-on high",
     "security:scan": "npm run security:audit && npm run security:cve"
   },
-  "overrides": {
-    "@prisma/config": {
-      "deepmerge-ts": "^8.0.0"
-    }
-  },
   "dependencies": {
-    "@prisma/adapter-pg": "^7.10.0",
-    "@prisma/client": "^7.10.0",
+    "@prisma/adapter-pg": "^7.6.0",
+    "@prisma/client": "^7.6.0",
     "@types/archiver": "^7.0.0",
     "archiver": "^7.0.1",
-    "deepmerge-ts": "^8.0.0",
-    "esbuild": "^0.28.2",
-    "fast-uri": "^4.0.1",
-    "hono": "^4.13.5",
-    "js-yaml": "^4.3.2",
     "lucide-react": "^0.546.0",
-    "mysql2": "^3.23.1",
-    "next": "^16.3.3",
-    "nodemailer": "^10.0.1",
+    "next": "^16.2.7",
+    "nodemailer": "^7.0.6",
     "ogl": "^1.0.11",
     "pg": "^8.20.0",
-    "postcss": "^8.5.23",
-    "prisma": "^7.10.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "react-hot-toast": "^2.6.0",
     "recharts": "^3.8.1",
-    "systeminformation": "^5.31.7",
-    "valibot": "^1.4.2",
+    "systeminformation": "^5.31.6",
     "zod": "^4.3.6"
   },
   "devDependencies": {
@@ -53,8 +40,9 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "^16.2.7",
+    "prisma": "^7.6.0",
     "tailwindcss": "^4",
-    "tsx": "^4.23.13",
+    "tsx": "^4.20.5",
     "typescript": "^5"
   },
   "prisma": {
