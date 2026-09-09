@@ -10,6 +10,8 @@ import { UploadForm } from "./upload-form";
 import { BarChart3, HardDrive, LogOut, Upload, FolderOpen, FileText, FileSpreadsheet, FileArchive, File, Image as ImageIcon, Clock3, ShieldCheck, Star } from "lucide-react";
 import Link from "next/link";
 
+const DASHBOARD_FILE_LIMIT = 12;
+
 function formatBytes(value: bigint) {
   const units = ["B", "KB", "MB", "GB", "TB"];
   let size = Number(value);
@@ -65,57 +67,69 @@ function storageInsightKey(type: string): StorageInsightKey {
 export default async function DashboardPage() {
   const user = await requireUser();
 
-  const files = await db.file.findMany({
-    where: { userId: user.id },
-    orderBy: { createdAt: "desc" },
-    select: {
-      id: true,
-      name: true,
-      path: true,
-      type: true,
-      size: true,
-      createdAt: true,
-    },
-  });
-  const favoriteFiles = await db.fileFavorite.findMany({
-    where: {
-      userId: user.id,
-    },
-    orderBy: {
-      createdAt: "desc",
-    },
-    take: 6,
-    select: {
-      file: {
-        select: {
-          id: true,
-          name: true,
-          path: true,
-          type: true,
-          lastAccessedAt: true,
+  const [files, favoriteFiles, recentFiles, fileTypeSummary] = await Promise.all([
+    db.file.findMany({
+      where: { userId: user.id },
+      orderBy: { createdAt: "desc" },
+      take: DASHBOARD_FILE_LIMIT,
+      select: {
+        id: true,
+        name: true,
+        path: true,
+        size: true,
+        createdAt: true,
+      },
+    }),
+    db.fileFavorite.findMany({
+      where: {
+        userId: user.id,
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+      take: 6,
+      select: {
+        file: {
+          select: {
+            id: true,
+            name: true,
+            path: true,
+            type: true,
+            lastAccessedAt: true,
+          },
         },
       },
-    },
-  });
-  const recentFiles = await db.file.findMany({
-    where: {
-      userId: user.id,
-      lastAccessedAt: {
-        not: null,
+    }),
+    db.file.findMany({
+      where: {
+        userId: user.id,
+        lastAccessedAt: {
+          not: null,
+        },
       },
-    },
-    orderBy: {
-      lastAccessedAt: "desc",
-    },
-    take: 6,
-    select: {
-      id: true,
-      name: true,
-      path: true,
-      type: true,
-      lastAccessedAt: true,
-    },
-  });
+      orderBy: {
+        lastAccessedAt: "desc",
+      },
+      take: 6,
+      select: {
+        id: true,
+        name: true,
+        path: true,
+        type: true,
+        lastAccessedAt: true,
+      },
+    }),
+    db.file.groupBy({
+      by: ["type"],
+      where: { userId: user.id },
+      _count: {
+        _all: true,
+      },
+      _sum: {
+        size: true,
+      },
+    }),
+  ]);
 
   const usagePercent = Number(
     (user.storageUsed * BigInt(100)) / (user.storageLimit || BigInt(1)),
@@ -127,7 +141,7 @@ export default async function DashboardPage() {
     size: Number(file.size),
     createdAt: file.createdAt.toISOString(),
   }));
-  const totalBytes = files.reduce((sum, file) => sum + Number(file.size), 0);
+  const totalBytes = Number(user.storageUsed);
   const storageBuckets: Record<StorageInsightKey, { label: string; count: number; bytes: number }> = {
     images: { label: "Images", count: 0, bytes: 0 },
     pdfs: { label: "PDFs", count: 0, bytes: 0 },
@@ -135,11 +149,15 @@ export default async function DashboardPage() {
     archives: { label: "Archives", count: 0, bytes: 0 },
     other: { label: "Other", count: 0, bytes: 0 },
   };
+  let totalFileCount = 0;
 
-  for (const file of files) {
-    const key = storageInsightKey(file.type);
-    storageBuckets[key].count += 1;
-    storageBuckets[key].bytes += Number(file.size);
+  for (const group of fileTypeSummary) {
+    const key = storageInsightKey(group.type);
+    const count = group._count._all;
+    const bytes = Number(group._sum.size ?? BigInt(0));
+    storageBuckets[key].count += count;
+    storageBuckets[key].bytes += bytes;
+    totalFileCount += count;
   }
 
   const storageInsights = (Object.keys(storageBuckets) as StorageInsightKey[])
@@ -243,7 +261,18 @@ export default async function DashboardPage() {
         </section>
 
         <section className="rounded-2xl border border-zinc-200/90 bg-white/95 p-6 shadow-sm backdrop-blur-[2px] dark:border-zinc-800/80 dark:bg-zinc-950/90 dark:shadow-black/20">
-          <h2 className="mb-5 text-lg font-semibold">Your Files</h2>
+          <div className="mb-5 flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-semibold">Recent Uploads</h2>
+              <p className="mt-1 text-xs text-zinc-500">Latest {DASHBOARD_FILE_LIMIT} files. Use File Explorer for the complete library.</p>
+            </div>
+            <Link
+              href="/dashboard/files"
+              className="text-xs font-semibold uppercase tracking-wide text-zinc-500 transition duration-200 hover:text-green-500"
+            >
+              View all
+            </Link>
+          </div>
           <FilesList files={serializedFiles} />
         </section>
 
@@ -290,7 +319,7 @@ export default async function DashboardPage() {
               <HardDrive className="h-5 w-5 text-zinc-500" />
               Storage Insights
             </h2>
-            <p className="text-xs text-zinc-500">{files.length} files</p>
+            <p className="text-xs text-zinc-500">{totalFileCount} files</p>
           </div>
 
           {storageInsights.length === 0 ? (
