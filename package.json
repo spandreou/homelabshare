@@ -8,6 +8,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "vitest run",
     "db:seed": "prisma db seed",
     "security:audit": "npm audit --audit-level=high",
     "security:cve": "npx --yes cve-lite-cli@1 . --all --verbose --fail-on high",
@@ -31,6 +32,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/nodemailer": "^7.0.3",
@@ -42,7 +44,8 @@
     "prisma": "^7.6.0",
     "tailwindcss": "^4",
     "tsx": "^4.20.5",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^2.1.9"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
