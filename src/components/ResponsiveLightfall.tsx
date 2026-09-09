@@ -1,10 +1,13 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useSyncExternalStore } from "react";
 import type { ComponentProps } from "react";
-import Lightfall from "./Lightfall";
 
-type ResponsiveLightfallProps = ComponentProps<typeof Lightfall>;
+type LightfallComponent = (typeof import("./Lightfall"))["default"];
+type ResponsiveLightfallProps = ComponentProps<LightfallComponent>;
+
+const Lightfall = dynamic(() => import("./Lightfall"), { ssr: false });
 
 const animationQuery = "(min-width: 768px) and (any-pointer: fine) and (prefers-reduced-motion: no-preference)";
 
