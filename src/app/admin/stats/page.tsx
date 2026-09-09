@@ -77,7 +77,7 @@ export default async function AdminStatsPage() {
 
   const totalUsers = users.length;
   const totalFileCount = totalFiles.length;
-  const diskUsageBytes = storageAggregate._sum.size ?? BigInt(0);
+  const trackedStorageBytes = storageAggregate._sum.size ?? BigInt(0);
 
   const userStorageData = users.map((user) => ({
     email: user.email,
@@ -152,9 +152,10 @@ export default async function AdminStatsPage() {
           <article className="rounded-2xl border border-zinc-800 bg-zinc-900/80 p-5">
             <p className="mb-2 inline-flex items-center gap-2 text-sm text-zinc-400">
               <HardDrive className="h-4 w-4 text-green-400" />
-              Total Disk Usage
+              Tracked File Storage
             </p>
-            <p className="text-3xl font-bold">{formatBytes(diskUsageBytes)}</p>
+            <p className="text-3xl font-bold">{formatBytes(trackedStorageBytes)}</p>
+            <p className="mt-1 text-xs text-zinc-500">Database-tracked uploads only.</p>
           </article>
           <article className="rounded-2xl border border-zinc-800 bg-zinc-900/80 p-5">
             <p className="mb-2 inline-flex items-center gap-2 text-sm text-zinc-400">
