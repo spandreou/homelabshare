@@ -8,6 +8,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "tsx --test \"src/**/*.test.ts\"",
     "db:seed": "prisma db seed",
     "security:audit": "npm audit --audit-level=high",
     "security:cve": "npx --yes cve-lite-cli@1 . --all --verbose --fail-on high",
