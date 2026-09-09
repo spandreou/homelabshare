@@ -20,7 +20,7 @@ import { db } from "../lib/db";
 import { resolveDisplayFileName } from "../lib/file-name-display";
 import { getFormDataString, getFormDataValue, isFormDataOn } from "../lib/form-data";
 import { sendInviteCodeEmail } from "../lib/mail";
-import { collectSystemStats, type SystemStats } from "../lib/system-stats";
+import { collectSystemStats } from "../lib/system-stats";
 import { UPLOAD_ROOT } from "../lib/storage";
 
 const INVITE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
@@ -692,7 +692,7 @@ export async function zipFiles(formData: FormData) {
   redirect(`/api/files/zip?paths=${encoded}`);
 }
 
-export async function getSystemStats(): Promise<SystemStats> {
+export async function getSystemStats() {
   await requireAdmin();
   try {
     return await collectSystemStats();
