@@ -882,7 +882,7 @@ export async function loginAction(
     },
   }).catch(() => undefined);
 
-  if (nextPath.startsWith("/") && !nextPath.startsWith("//")) {
+  if (nextPath.startsWith("/") && !nextPath.startsWith("//") && !nextPath.startsWith("/\\")) {
     redirect(nextPath);
   }
 

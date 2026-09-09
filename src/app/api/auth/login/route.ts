@@ -51,7 +51,7 @@ function landingRedirect(request: Request, error: string) {
 }
 
 function dashboardRedirect(request: Request, nextPath: string) {
-  const safeNextPath = nextPath.startsWith("/") && !nextPath.startsWith("//") ? nextPath : "/dashboard";
+  const safeNextPath = nextPath.startsWith("/") && !nextPath.startsWith("//") && !nextPath.startsWith("/\\") ? nextPath : "/dashboard";
   return NextResponse.redirect(new URL(safeNextPath, appOrigin(request)), 303);
 }
 
