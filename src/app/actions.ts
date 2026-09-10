@@ -1577,7 +1577,7 @@ export async function cleanupOrphanedFilesAction() {
 
       for (const file of missingDbFiles) {
         fileIdsToDelete.push(file.id);
-        const currentReduction = userStorageReductions.get(file.userId) || 0n;
+        const currentReduction = userStorageReductions.get(file.userId) || BigInt(0);
         userStorageReductions.set(file.userId, currentReduction + file.size);
         missingRecordCount += 1;
       }
