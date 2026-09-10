@@ -1572,12 +1572,22 @@ export async function cleanupOrphanedFilesAction() {
 
   if (missingDbFiles.length > 0) {
     await db.$transaction(async (tx) => {
+      const fileIdsToDelete: string[] = [];
+      const userStorageReductions = new Map<string, bigint>();
+
       for (const file of missingDbFiles) {
-        await tx.file.delete({
-          where: { id: file.id },
-        });
-        await decrementStorageUsedSafely(tx, file.userId, file.size);
+        fileIdsToDelete.push(file.id);
+        const currentReduction = userStorageReductions.get(file.userId) || BigInt(0);
+        userStorageReductions.set(file.userId, currentReduction + file.size);
         missingRecordCount += 1;
+      }
+
+      await tx.file.deleteMany({
+        where: { id: { in: fileIdsToDelete } },
+      });
+
+      for (const [userId, totalSize] of userStorageReductions) {
+        await decrementStorageUsedSafely(tx, userId, totalSize);
       }
     });
   }
